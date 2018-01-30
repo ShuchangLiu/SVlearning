@@ -1,5 +1,5 @@
 #### tab seperated file to enter the path of the tools
-intersectBed	/opt/software/helix/BEDtools/2.26.0/bin/intersectBed
+bedtools	/opt/software/helix/BEDtools/2.26.0/bin/bedtools
 Rscript	/opt/software/helix/R/3.4.1/bin/Rscript
 Python	/opt/software/helix/python/2.7.9/bin/python
 scriptDir	/projects/liusi/DP/Gitpackage/SVlearning/scripts
@@ -17,8 +17,12 @@ MLmethod	SVMradial,SVMpolynomial,RF
 # bool to indicate whether the MLmodel is provided or not
 # if knownModel==FALSE, need trainDataDir to train the model; otherwise use exiting model
 knownModel	FALSE
-# if knownModel==TRUE, need to provide modelFolder
+# if knownModel==TRUE, need to provide modelFolder; otherwise store the model under this folder
 modelDir	/projects/liusi/DP/Gitpackage/SVlearning/example
+trueDir	true  #  true temp files
+breakdancerDir	breakdancer #  breakdancer temp files
+CNVnatorDir	CNVnator # CNVnator temp files
+dellyDir	delly # delly temp files
 # vote among ML models, this must be an positive integer less than or equal to the MLmethod number
 vote	1
 #### Advanced paramters, change only if you know the meaning
@@ -26,7 +30,9 @@ vote	1
 filterNregion	TRUE  # filter out regions located at N regions
 Nrate	0.2  # filter the SV calls with greater than Nrate N regions
 filterDellyGenotype	TRUE  # only keep 0/1 or 1/1 genotype
+keepGenotype	0/1,1/1  # if filterDellyGenotype==TRUE, the genotype to be kept
 Chr	1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based on the reference genome, contigs are not recommended
+Type	DEL,DUP  # SV types to analysis
 # DEL length bin boundary, comma separated. Use default value if not provided
 DELbin	50,1000,5000,20000,100000
 DUPbin	NA
