@@ -23,6 +23,7 @@ trueDir	true  #  true temp files
 breakdancerDir	breakdancer #  breakdancer temp files
 CNVnatorDir	CNVnator # CNVnator temp files
 dellyDir	delly # delly temp files
+pieceDir	piece # piece temp files
 # vote among ML models, this must be an positive integer less than or equal to the MLmethod number
 vote	1
 #### Advanced paramters, change only if you know the meaning
@@ -35,4 +36,4 @@ Chr	1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based
 Type	DEL,DUP  # SV types to analysis
 # DEL length bin boundary, comma separated. Use default value if not provided
 DELbin	50,1000,5000,20000,100000
-DUPbin	NA
+DUPbin	50,1000,5000,20000,100000
