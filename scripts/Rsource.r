@@ -1,5 +1,39 @@
 ## R source functions
 
+### checkFormatPara
+# to check and format the paramters
+checkFormatPara <- function(para){
+  ## code to check and format paramters
+}
+
+
+### installRpackage
+# code to install R packages
+installRpackage <- function(para){
+  # library("nnet")  ## nnet
+  # library("e1071")  ## SVM
+  # library("MASS")  ## LDA
+  # library("randomForest")  ## random forest
+  # library("fastAdaboost")  ## adaboost
+  
+  print(paste("[",Sys.time(),"] Load R packge",sep=""))
+  
+  modelPackageMap=c("nnet","e1071","e1071","MASS","randomForest","fastAdaboost")
+  names(modelPackageMap)=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
+  
+  packageList=unique(modelPackageMap[para$MLmethod])
+  
+  for(packageName in packageList){
+    print(packageName)
+    if(!packageName%in%rownames(installed.packages())){
+      install.packages(as.character(packageName))
+    }
+    library(as.character(packageName),character.only=T)
+  }
+  
+}
+
+
 ########## prepare function ############
 
 #### prepare_truth
@@ -56,7 +90,7 @@ prepare_true <- function(para,sampleDir,Sample){
     }
     endPos=as.integer(endPos)
     
-    df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype)
+    df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,stringsAsFactors=FALSE)
     
     ## check endPos>startPos
     switchInd=which(endPos<startPos)
@@ -501,6 +535,7 @@ prepareData <- function(para){
   Sample=para$testSample
   
   # truth
+  # in case testing data have truth available, for future testing results evaluation
   print(paste("[",Sys.time(),"] prepare true testing data",sep=""))
   prepare_true(para=para,sampleDir=sampleDir,Sample=Sample)
   
@@ -627,7 +662,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
   
   pieceDir=paste(para$outDir,"/",para$pieceDir,sep="")
   
-  #[[type]][[sample]][[as.integer(binlen)]][[as.character(chr)]]
+  #[[type]][[sample]][[as.character(as.integer(binlen))]][[as.character(chr)]]
   for(type in para$Type){
     
     if(type=="DEL"){
@@ -658,6 +693,12 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         toolBEDtype=paste(para$outDir,"/",para$CNVnatorDir,"/",sample,"_",type,".bed",sep="")
         res2=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
         
+        # modify CNVnator to avaoid some extreme value
+        ind1=res2[,5]<0
+        ind2=res2[,5]==0
+        res2[ind1,5]=0
+        res2[ind2,5]=-1
+        
         # delly
         toolBEDtype=paste(para$outDir,"/",para$dellyDir,"/",sample,"_",type,".bed",sep="")
         res3=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
@@ -677,16 +718,16 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
           
           for(chr in para$Chr){
             
-            pieceFileXY=paste(pieceDir,"/",type,"_",sample,"_",as.integer(binlen),"_",chr,"_xy.txt",sep="")
+            pieceFileXY=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
             selectInd=which(SVlenAll>=binLenAll[binlenInd] & SVlenAll<binLenAll[binlenInd+1] & SVposAll==chr)
             if(length(selectInd)>0){
               pieceOut=SV2piece(SVpos=as.matrix(SVposAll[selectInd,2:3]),SVscore=matrix(SVscoreAll[selectInd,],ncol=ncol(SVscoreAll)))
-              out=data.frame(chr,pieceOut$piecePos,type,pieceOut$pieceScore)
+              out=data.frame(chr,pieceOut$piecePos,type,pieceOut$pieceScore,stringsAsFactors=FALSE)
               
               # intersect with truth
               if(file.exists(trueBEDtype)){
-                pieceFile=paste(pieceDir,"/",type,"_",sample,"_",as.integer(binlen),"_",chr,".bed",sep="")
-                pieceFileMark=paste(pieceDir,"/",type,"_",sample,"_",as.integer(binlen),"_",chr,"_mark.txt",sep="")
+                pieceFile=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,".bed",sep="")
+                pieceFileMark=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_mark.txt",sep="")
                 
                 write.table(out,file=pieceFile,sep="\t",col.names=F,row.names=F,quote=F)
                 s=paste(para$bedtools," intersect -a ", pieceFile, " -b ",trueBEDtype," -c > ",pieceFileMark,sep="")
@@ -702,12 +743,6 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
               }
               
               # correct the values for ML input
-              # modify CNVnator
-              ind1=out[,6]<0
-              ind2=out[,6]==0
-              out[ind1,6]=0
-              out[ind2,6]=-1
-              
               # modify y
               out[out[,8]>1,8]=1
               
@@ -749,6 +784,503 @@ formatPieceSV <- function(para){
   Sample=para$testSample
   formatPieceSVsample(para=para,sampleDir=sampleDir,Sample=Sample)
 }
+
+
+
+#### trainModel
+# a function to train the SVlearning model
+trainModel <- function(para, Sample){
+  
+  print(paste("[",Sys.time(),"] Train the model",sep=""))
+  
+  #Sample=para$trainSample
+  
+  model=list()
+  #[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+  
+  modelNA=list()
+  for(modelName in para$MLmethod){
+    modelNA[[modelName]]=NA
+  }
+  
+  for(type in para$Type){
+    
+    model[[type]]=list()
+    
+    if(type=="DEL"){
+      binLen=para$DELbin
+    }else if(type=="DUP"){
+      binLen=para$DUPbin
+    }else{
+      stop(paste("Type ",type," not supporting yet!"))
+    }
+    binLenAll=c(binLen,Inf)
+    
+    for(binlen in binLen){
+      print(paste("type=",type,", binlen=",as.character(as.integer(binlen)),sep=""))
+      model[[type]][[as.character(as.integer(binlen))]]=list()
+      
+      for(chr in para$Chr){
+        
+        ### prepare training data
+        x=c()
+        y=c()
+        
+        for(sample in Sample){
+          pieceFile=paste(para$outDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
+          if(file.info(pieceFile)$size!=0){
+            res=read.table(pieceFile,header=F,sep="\t",as.is=T)
+            x=rbind(x,res[,5:7])
+            y=c(y,res[,8])
+          }
+        }
+        
+        model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]]=modelNA
+        
+        if(length(y)==0){
+          # no supporting training data
+          print(paste("No supporting training data for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+          next
+        }else if(length(unique(y))==1){
+          # only one y label
+          print(paste("Only y=",unique(y)," for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+          next
+        }else if (sum(y==0)==1){
+          print(paste("Not enough number of y=0 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+          next
+        }else if(sum(y==1)==1){
+          print(paste("Not enough number of y=1 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+          next
+        }
+        
+        # make y=0 and y=1 equally
+        y0Ind=which(y==0)
+        y1Ind=which(y==1)
+        if(length(y0Ind)>length(y1Ind)){
+          # then make the y1Ind the same number as y0Ind
+          y1Ind=sample(y1Ind,size=length(y0Ind),replace=T)
+        }else if(length(y0Ind)<length(y1Ind)){
+          # make the y0Ind the same number as y1Ind
+          y0Ind=sample(y0Ind,size=length(y1Ind),replace=T)
+        }
+        
+        x=x[c(y0Ind,y1Ind),]
+        y=y[c(y0Ind,y1Ind)]
+        colnames(x)=NULL
+        x=as.matrix(x)
+        
+        ### train the model
+        # to avoid constant features
+        ## TBD: check this part later, either assign some random values OR remove the constant features
+        xx=x
+        for(ylabel in c(0,1)){
+          yInd=which(y==ylabel)
+          sd0Ind=which(apply(matrix(x[yInd,],nrow=length(yInd),ncol=ncol(x)),2,sd)<1E-10) # very small sd
+          if(length(sd0Ind)>0){
+            print(c(ylabel,sd0Ind))
+            for(j in sd0Ind){
+              xx[yInd,j]=xx[yInd,j]+ rnorm(length(yInd),mean=0,sd=(mean(x[yInd,j])/10+0.01))   # add some noise
+            }
+          }
+        }
+        
+        # model 1: SVM radial
+        if("SVMradial"%in%para$MLmethod){
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["SVMradial"]] = svm(x=xx, y=as.factor(y), kernel="radial", cost = 100, probability=TRUE)  # default cost
+        }
+        
+        # model 2: SVM polynomial
+        if("SVMpolynomial"%in%para$MLmethod){
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["SVMpolynomial"]] = svm(x=xx, y=as.factor(y), kernel="polynomial", cost = 100, probability=TRUE)  # default cost
+        }
+        
+        # model 3: RF
+        if("RF"%in%para$MLmethod){
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["RF"]]=randomForest(x=x,y=as.factor(y))
+        }
+        
+        # model 4: NN
+        if("NN"%in%para$MLmethod){
+          yy=cbind(y,1-y)
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["NN"]] = nnet(x, yy,size = 2, rang = 0.1, decay = 5e-4, maxit = 200)  # can adjust parameters later
+        }
+        
+        # model 5: LDA
+        if("LDA"%in%para$MLmethod){
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["LDA"]] = lda(x=xx,grouping=as.factor(y))
+        }
+        
+        # model 6: adaboost
+        if("adaboost"%in%para$MLmethod){
+          prepData=data.frame(x,Y=y)
+          prepData$Y=factor(prepData$Y)
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["adaboost"]] = adaboost(Y ~., prepData,nIter=100)
+        }
+        
+      } # end for(chr in para$Chr)
+    } # end for(binlen in binLen)
+  }  # end for(type in para$Type)
+  
+  # save the model
+  system(paste("mkdir -p ",para$modelDir,sep=""))
+  save(model,file=paste(para$modelDir,"/",para$modelFile,sep=""))
+}
+
+
+### piece2SV
+# to merge the piece to SV by gapDis
+piece2SV <- function(piecePos, pieceScore,gapDis=1){
+  # piecePos -input matrix, these data should be sorted and nonoverlapped, within the same chromosome
+  #   piecePos[,1] for left position
+  #   pieceScore[,2] for right position
+  # pieceScore - score matrix corresponding with piecePos, cbind(callerScore, MLpredict)
+  # gapDis - gap distance to merge the pieces
+  # output-SVpos - left and right position for SV
+  # output-SVscore - start:end:pieceScore, comma separated if multiple pieces
+  
+  if(nrow(piecePos)!=nrow(pieceScore)){
+    stop("Error: The numbers of input piece are not equal for piecePos and pieceScore")
+  }
+  
+  if(length(piecePos)==0){
+    warning("Zero pieces to be merge into SV")
+    SVpos=matrix(0,nrow=0,ncol=2)
+    SVscore=c()
+  }else if(nrow(piecePos)==1){  # only one line
+    SVpos=piecePos
+    SVscore=paste(c(piecePos[1,],pieceScore[1,]),collapse=":")
+  }else{
+    N=nrow(pieceScore)
+    
+    ## initialization
+    SVpos=c()
+    SVscore=c()
+    
+    currentSVpos=c(piecePos[1,1],0)
+    currentSVscore=paste(c(piecePos[1,],pieceScore[1,]),collapse=":")
+    
+    ## iteration
+    for(i in 2:N){
+      if(piecePos[i,1]-piecePos[i-1,2]>gapDis){
+        # complete the current SV
+        currentSVpos[2]=piecePos[i-1,2]
+        SVpos=rbind(SVpos,currentSVpos)
+        SVscore=c(SVscore,currentSVscore)
+        # start a new SV
+        currentSVpos=c(piecePos[i,1],0)
+        currentSVscore=paste(c(piecePos[i,],pieceScore[i,]),collapse=":")
+      }else{
+        # keep adding to the current SV
+        currentSVscore=paste(currentSVscore,",",paste(c(piecePos[i,],pieceScore[i,]),collapse=":"),sep="")
+      }
+    }
+    
+    ## end, add the last piece and complete the SV
+    currentSVpos[2]=piecePos[N,2]
+    SVpos=rbind(SVpos,currentSVpos)
+    SVscore=c(SVscore,currentSVscore)
+    
+  }
+  rownames(SVpos)=NULL
+  return(list(SVpos=SVpos,SVscore=SVscore))
+}
+
+
+#### modelPredict
+# to predict the label based on the model
+modelPredict <- function(para, Sample){
+  
+  print(paste("[",Sys.time(),"] Predict testing data",sep=""))
+  
+  ### load the reference length file
+  refLen=read.table(para$refLenFile,header=F,sep="\t",as.is=T)
+  
+  #### load the model 
+  load(paste(para$modelDir,"/",para$modelFile,sep=""))
+  #[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+  
+  modelNum=length(para$MLmethod)
+  callerNum=3  # currently three caller, change this later
+  
+  #### prediction within each bin
+  for(sample in Sample){
+    
+    print(paste("[",Sys.time(),"] sample=",sample,sep=""))
+    
+    SVall=data.frame(stringsAsFactors=FALSE)
+    
+    for(type in para$Type){
+      
+      print(paste("type=",type,sep=""))
+      
+      SVtype=data.frame(stringsAsFactors=FALSE)
+      
+      if(type=="DEL"){
+        binLen=para$DELbin
+      }else if(type=="DUP"){
+        binLen=para$DUPbin
+      }else{
+        stop(paste("Type ",type," not supporting yet!"))
+      }
+      binLenAll=c(binLen,Inf)
+      
+      for(binlen in binLen){
+        
+        for(chr in para$Chr){
+          
+          pieceFileXY=paste(para$outDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
+          
+          if(file.info(pieceFileXY)$size==0){ # no testing data
+            next
+          }
+          
+          res=read.table(pieceFileXY,header=F,sep="\t",as.is=T)
+          
+          x=as.matrix(res[,5:7])
+          colnames(x)=NULL
+          y=as.numeric(res[,8])
+          
+          ## a matrix to record predict results for each ML model
+          y.predict=matrix(0,nrow=nrow(res),ncol=modelNum+1)
+          colnames(y.predict)=c(para$MLmethod,"vote")
+          
+          # model 1: SVM radial
+          modelName="SVMradial"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              y.predict[,modelName] = as.numeric(predict(currentModel, x, decision.values=T))-1
+            }
+          }
+          
+          # model 2: SVM polynomial
+          modelName="SVMpolynomial"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              y.predict[,modelName] = as.numeric(predict(currentModel, x, decision.values=T))-1
+            }
+          }
+          
+          # model 3: RF
+          modelName="RF"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              y.predict[,modelName] = as.numeric(predict(currentModel,x))-1
+            }
+          }
+          
+          # model 4: NN
+          modelName="NN"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              preds=predict(currentModel, x)
+              y.predict[,modelName] = as.numeric(preds[,1]>preds[,2])
+            }
+          }
+          
+          # model 5: LDA
+          modelName="LDA"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              y.predict[,modelName] = as.numeric(predict(currentModel,x)$class)-1
+            }
+          }
+          
+          # model 6: adaboost
+          modelName="adaboost"
+          if(modelName%in%para$MLmethod){
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            if(is.null(currentModel) | all(is.na(currentModel))){
+              print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
+            }else{
+              y.predict[,modelName] = as.numeric(predict(currentModel,data.frame(x))$class)-1
+            }
+          }
+          
+          ### vote to get final prediction
+          y.predict[,"vote"]=as.numeric(apply(matrix(y.predict[,1:modelNum],ncol=modelNum),1,sum)>=para$vote)
+          
+          ### merge piece to SV
+          selectInd=which(y.predict[,"vote"]==1)
+          if(length(selectInd)!=0){
+            # piece2SV, output score with format, start:end:callerScore:predict
+            tmp=piece2SV(piecePos=as.matrix(res[selectInd,c(2,3)]), 
+                         pieceScore=cbind(matrix(x[selectInd,],nrow=length(selectInd),ncol=ncol(x)),
+                                          matrix(y.predict[selectInd,1:modelNum],nrow=length(selectInd),ncol=modelNum)),
+                         gapDis=para$gapDis)
+            SVtype=rbind(SVtype,data.frame(chr=chr,startPos=tmp$SVpos[,1],endPos=tmp$SVpos[,2],type=type,info=tmp$SVscore,stringsAsFactors=FALSE))
+          }
+          
+        } # end for(chr in para$Chr)
+      } # end for(binlen in binLen)
+      
+      ## any code for sample & type bin, can be added here
+      
+      SVall=rbind(SVall, SVtype)
+      
+    } # end for (type in para$Type)
+    
+    ### prepare for output
+    
+    SVall$chr=factor(SVall$chr,levels=para$Chr)
+    
+    if(nrow(SVall)>0){
+      ### combine all into one file, sort
+      # by startPos
+      ind=order(SVall$startPos)
+      SVall=SVall[ind,]
+      # by chr
+      ind=order(SVall$chr)
+      SVall=SVall[ind,]
+      
+      # get reference
+      out=data.frame(SVall$chr,SVall$startPos,SVall$startPos+1,stringsAsFactors=FALSE)
+      system(paste("mkdir -p ",para$outDir,"/",para$shortBedDir,sep=""))
+      outFile=paste(para$outDir,"/",para$shortBedDir,"/",sample,".short.bed",sep="")
+      write.table(out,file=outFile,row.names=F,col.names=F,sep="\t",quote=F)
+      REF=as.character(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",outFile," | awk -F \"\\t\" '{print $2}' ",sep=""),intern=T))
+      if(length(REF)!=nrow(SVall)){
+        stop("Errors for reference: non-euqal number of reference and SV, SV position may exceed chromosome length.")
+      }
+      ## TBD: some called regions with multiple starting N or end N strings, do some final fitering
+      
+      # ID name
+      ID=paste("SVlearing",1:nrow(SVall),sep="_")
+      
+      # ALT
+      ALT=paste("<",SVall$type,">",sep="")
+      
+      # INFO
+      INFO=paste("SVTYPE=",SVall$type,";SVLEN=",SVall$endPos-SVall$startPos+1,";END=",SVall$endPos,";IMPRECISE",sep="")
+    }
+    
+    # BED format
+    if("BED"%in%para$outFormat){
+      system(paste("mkdir -p ",para$outDir,"/",para$bedDir,sep=""))
+      outFile=paste(para$outDir,"/",para$bedDir,"/",sample,".bed",sep="")
+      
+      if(nrow(SVall)==0){
+        cat(paste("#chrom","chromStart","chromEnd","name","REF","ALT",
+                  paste("PSTART:PEND:breakdancer:CNVnator:delly:",paste(para$MLmethod,collapse=":"),sep=""),sep="\t"),file=outFile,sep="\n")
+      }else{
+        outSVall=data.frame(chrom=SVall$chr, chromStart=SVall$startPos, chromEnd=SVall$endPos, name=ID, 
+                            REF=REF, ALT=ALT, INFO=SVall$info, stringsAsFactors=FALSE) 
+        colnames(outSVall)[7]=paste("PSTART:PEND:breakdancer:CNVnator:delly:",paste(para$MLmethod,collapse=":"),sep="")
+        
+        cat(paste("#",paste(colnames(outSVall),collapse="\t"),sep=""),file=outFile,sep="\n")
+        write.table(outSVall,file=outFile,row.names=F,col.names=F,sep="\t",quote=F,append=T)
+      }
+      
+    }  # end  if("BED"%in%para$outFormat)
+    
+    # VCF format
+    if("VCF"%in%para$outFormat){
+      
+      system(paste("mkdir -p ",para$outDir,"/",para$vcfDir,sep=""))
+      outFile=paste(para$outDir,"/",para$vcfDir,"/",sample,".vcf",sep="")
+      
+      cat("##fileformat=VCF",file=outFile,sep="\n")
+      cat(paste("##fileDate=",Sys.Date(),sep=""),file=outFile,sep="\n",append=TRUE)
+      cat(paste("##reference=",para$reference,sep=""),file=outFile,sep="\n",append=TRUE)
+      
+      cat("##FILTER=<ID=LowQual,Description=\"Low Quality\">",file=outFile,sep="\n",append=TRUE)
+      cat("##FILTER=<ID=PASS,Description=\"All filters passed\">",file=outFile,sep="\n",append=TRUE)
+      
+      cat("##ALT=<ID=DEL,Description=\"Deletion\">",file=outFile,sep="\n",append=TRUE)
+      cat("##ALT=<ID=DUP,Description=\"Duplication\">",file=outFile,sep="\n",append=TRUE)
+      
+      cat("##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"Type of structural variant\">",file=outFile,sep="\n",append=TRUE)
+      cat("##INFO=<ID=SVLEN,Number=.,Type=Integer,Description=\"Difference in length between REF and ALT alleles\">",file=outFile,sep="\n",append=TRUE)
+      cat("##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position of the variant described in this record\">",file=outFile,sep="\n",append=TRUE)
+      cat("##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description=\"Imprecise structural variation\">",file=outFile,sep="\n",append=TRUE)
+      
+      cat("##FORMAT=<ID=PSTART,Number=1,Type=Integer,Description=\"Start position of the combining pieces\">",file=outFile,sep="\n",append=TRUE)
+      cat("##FORMAT=<ID=PEND,Number=1,Type=Integer,Description=\"End position of the combining pieces\">",file=outFile,sep="\n",append=TRUE)
+      cat("##FORMAT=<ID=breakdancer,Number=1,Type=Double,Description=\"Breakdancer quality score\">",file=outFile,sep="\n",append=TRUE)
+      cat("##FORMAT=<ID=CNVnator,Number=1,Type=Double,Description=\"CNVnator natorP2 value\">",file=outFile,sep="\n",append=TRUE)
+      cat("##FORMAT=<ID=delly,Number=1,Type=Double,Description=\"Delly genotype quality score\">",file=outFile,sep="\n",append=TRUE)
+      
+      for(methodName in para$MLmethod){
+        cat(paste("##FORMAT=<ID=",methodName,",Number=1,Type=Integer,Description=\"",methodName," prediction\">",sep=""),file=outFile,sep="\n",append=TRUE)
+      }
+      
+      for(refInd in 1:nrow(refLen)){
+        cat(paste("##contig=<ID=",refLen[refInd,1],",len=",refLen[refInd,2],">",sep=""),file=outFile,sep="\n",append=TRUE)
+      }
+      
+      if(nrow(SVall)==0){
+        cat(paste("#CHROM","POS","ID","REF","ALT", "QUAL","FILTER","INFO","FORMAT",sample,sep="\t"),file=outFile,sep="\n")
+      }else{
+        
+        outSVall=data.frame(CHROM=SVall$chr, POS=SVall$startPos, ID=ID, REF=REF, ALT=ALT, QUAL=".",FILTER="PASS", INFO=INFO,
+                            FORMAT=paste("PSTART:PEND:breakdancer:CNVnator:delly:",paste(para$MLmethod,collapse=":"),sep=""),
+                            formatInfo=SVall$info, stringsAsFactors=FALSE)
+        colnames(outSVall)[10]=sample
+        
+        cat(paste("#",paste(colnames(outSVall),collapse="\t"),sep=""),file=outFile,sep="\n",append=TRUE)
+        write.table(outSVall,file=outFile,append=T,row.names=F,col.names=F,sep="\t",quote=F)
+      }
+      
+    } # if("VCF"%in%para$outFormat)
+    
+  }  #end for(sample in SampleTest)
+  
+}
+
+
+
+### eva
+# to evaluate the prediction performance compared with truth
+eva<-function(yTrue, yPredict){
+  # yTrue and yPredict need to be binary value 0,1
+  tab=table(factor(yTrue,levels=c(0,1)),factor(yPredict,levels=c(0,1)))
+  TP=tab[2,2]
+  FP=tab[1,2]
+  TN=tab[1,1]
+  FN=tab[2,1]
+  sen=TP/(TP+FN)
+  spe=TN/(TN+FP)
+  acc=(TN+TP)/length(yTrue)
+  youden=sen+spe-1
+  mcc=(as.double(TP*TN) -as.double(FP*FN)) /sqrt(as.double(TP+FP)*as.double(TP+FN)*as.double(TN+FP)*as.double(TN+FN))
+  
+  out=c(TP,FP,TN,FN,sen,spe,acc,youden,mcc)
+  names(out)=c("TP","FP","TN","FN","Sen","Spe","Acc","Youden","MCC")
+  return(out)
+}
+
+
+### callerEvaluation
+# to evaluate the caller results compared with true set
+callerEvaluation(para,Sample){
+  # Sample=para$testSample
+  
+  ## evaluation initialization
+  colName=c("TP","FP","TN","FN","Sen","Spe","Acc","Youden","MCC")
+  evaMat0=matrix(0,nrow=length(Sample),ncol=colName)
+  rownames(evaMat0)=Sample
+  colnames(evaMat0)=colName
+
+  ## tool caller evaluation
+  
+  ## SVlearning evaluation
+    
+}
+
 
 
 
