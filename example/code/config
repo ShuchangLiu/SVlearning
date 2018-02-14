@@ -9,31 +9,42 @@ testDataDir	/projects/liusi/DP/Gitpackage/SVlearning/example/data
 reference	/projects/leew/refs/hg19/hs37d5.fa
 refLenFile	/projects/liusi/reference/hg19/hs37d5.len.txt
 #### output parameter
-outDir	/projects/liusi/DP/Gitpackage/SVlearning/example/output
+outDir	/projects/liusi/DP/Gitpackage/SVlearning/example/output # output folder
+tmpDir	/projects/liusi/DP/Gitpackage/SVlearning/example/tmp  # tmp file folder
 reportTestEvaluation	TRUE #  test true.vcf files are required
+outFormat	BED,VCF # choose from (BED, VCF) or list both of them
 #### ML model paramter
-# comma separated ML model name choose from: SVMpolynomial, SVMrdial, RF, NN, LDA, adaboost
+# comma separated ML model name choose from: SVMpolynomial, SVMradial, RF, NN, LDA, adaboost
 MLmethod	SVMradial,SVMpolynomial,RF
 # bool to indicate whether the MLmodel is provided or not
 # if knownModel==FALSE, need trainDataDir to train the model; otherwise use exiting model
 knownModel	FALSE
-# if knownModel==TRUE, need to provide modelFolder; otherwise store the model under this folder
-modelDir	/projects/liusi/DP/Gitpackage/SVlearning/example
+# if knownModel==TRUE, need to provide modelDir and modelFile; otherwise record the model at the modelDir. The model is rdata formated with the structure model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+modelDir	/projects/liusi/DP/Gitpackage/SVlearning/example/model
+modelFile	model.rdata
 trueDir	true  #  true temp files
 breakdancerDir	breakdancer #  breakdancer temp files
 CNVnatorDir	CNVnator # CNVnator temp files
 dellyDir	delly # delly temp files
 pieceDir	piece # piece temp files
-# vote among ML models, this must be an positive integer less than or equal to the MLmethod number
+shortBedDir	shortBed # for short bed file tmp file
+bedDir	BED # output BED file folder
+vcfDir	VCF # output VCF file folder
+evaDir	Evaluation # output evaluation file folder
+SVlearningDir	SVlearning # SVlearning tmp folder
+evaCaller	breakdancer,CNVnator,delly,SVlearning # callers to be evaluated
+# vote among ML methods, this must be an positive integer less than or equal to the MLmethod number
 vote	1
-#### Advanced paramters, change only if you know the meaning
 # filtering
 filterNregion	TRUE  # filter out regions located at N regions
 Nrate	0.2  # filter the SV calls with greater than Nrate N regions
 filterDellyGenotype	TRUE  # only keep 0/1 or 1/1 genotype
 keepGenotype	0/1,1/1  # if filterDellyGenotype==TRUE, the genotype to be kept
 Chr	1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based on the reference genome, contigs are not recommended
-Type	DEL,DUP  # SV types to analysis
+Type	DEL,DUP  # SV types to analysis, choose from DEL and DUP
 # DEL length bin boundary, comma separated. Use default value if not provided
 DELbin	50,1000,5000,20000,100000
 DUPbin	50,1000,5000,20000,100000
+# the gap when merging piece to SV, increasing this number will encourage more piece to be merged for a longer SV rather than many short SV
+gapDis	1
+rmTmpFile	FALSE  # remove the tmp file or not	
