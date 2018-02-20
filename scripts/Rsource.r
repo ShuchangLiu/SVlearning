@@ -2,8 +2,57 @@
 
 ### checkFormatPara
 # to check and format the paramters
-checkFormatPara <- function(para){
-  ## code to check and format paramters
+checkFormatPara <- function(configFileName){
+  
+  configFile=read.table(configFileName,comment.char="#",sep="\t",as.is=T,header=F)
+  
+  para=list()
+  for(i in 1:nrow(configFile)){
+    para[[configFile[i,1]]]=unlist(strsplit(gsub(" ","",configFile[i,2]),split=","))
+  }
+  
+  # change format
+  para$Nrate=as.numeric(para$Nrate)
+  para$vote=as.numeric(para$vote)
+  para$DELbin=as.integer(para$DELbin)
+  para$DUPbin=as.integer(para$DUPbin)
+  para$Chr=as.character(para$Chr)
+  
+  # ref len file
+  para$refLen=rep(0,times=length(para$Chr))
+  names(para$refLen)=para$Chr
+  tmp=read.table(para$refLenFile,sep="\t",header=F,as.is=T)
+  for(chr in para$Chr){
+    para$refLen[chr]=as.integer(tmp[which(tmp[,1]==chr),2])
+  }
+  
+  ## training sample, change here in case don't want to use the full training samples
+  para$trainSample=list.files(para$trainDataDir)
+  ## testing sample, change here in case don't want to use the full testing samples
+  para$testSample=list.files(para$testDataDir)
+  
+  ##### TBD: add code to check the parameter inputs, whether they satify the criteria
+  
+  # check para$MLmethod
+  if(!(all(para$MLmethod%in%c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")))){
+    stop("Error: In config file, MLmethod can only choose from SVMpolynomial, SVMrdial, RF, NN, LDA, adaboost")
+  }
+  if(length(para$MLmethod)<para$vote){
+    stop("Error: The number of MLmethod has to be equal to or greater than vote value.")
+  }
+  
+  # check para$Type
+  if(!all(para$Typ %in% c("DEL","DUP"))){
+    stop("Error: In config file, Type can only choose from DEL and DUP")
+  }
+  
+  ### to test all the MLmethod
+  para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
+  
+  print(para)
+  
+  return(para)
+  
 }
 
 
@@ -122,12 +171,17 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
   
   tool="breakdancer"
   toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
-  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+  #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
     
     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+    if(length(toolVCFtmp)==0){
+      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+    }else if(length(toolVCFtmp)>1){
+      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+    }
     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
     toolBEDpre=paste(toolDir,"/",sample,sep="")
@@ -194,13 +248,13 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
       correctInd=which(df$startPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the CNVnator SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
       correctInd=which(df$endPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the CNVnator SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
+        warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
       }
       
@@ -217,15 +271,15 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       for(type in para$Type){
         
         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+        #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+        #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
         
         dfSub=df[df$name==type,]
         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        system(s)
+        #s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+        #system(s)
       }
     }else{
       print(paste("Sample has been processed, skip",sep=""))
@@ -245,12 +299,17 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
   
   tool="CNVnator"
   toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
-  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+  #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
     
     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+    if(length(toolVCFtmp)==0){
+      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+    }else if(length(toolVCFtmp)>1){
+      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+    }
     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
     toolBEDpre=paste(toolDir,"/",sample,sep="")
@@ -321,13 +380,13 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
       correctInd=which(df$startPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the CNVnator SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
       correctInd=which(df$endPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the CNVnator SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
+        warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
       }
       
@@ -344,15 +403,15 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       for(type in para$Type){
         
         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+        #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+        #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
         
         dfSub=df[df$name==type,]
         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        system(s)
+        # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+        # system(s)
       }
     }else{
       print(paste("Sample has been prepared, skip",sep=""))
@@ -371,12 +430,17 @@ prepare_delly <- function(para,sampleDir,Sample){
   
   tool="delly"
   toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
-  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+  # trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
     
     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+    if(length(toolVCFtmp)==0){
+      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+    }else if(length(toolVCFtmp)>1){
+      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+    }
     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
     toolBEDpre=paste(toolDir,"/",sample,sep="")
@@ -454,13 +518,13 @@ prepare_delly <- function(para,sampleDir,Sample){
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
       correctInd=which(df$startPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the delly SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
       correctInd=which(df$endPos>tmpChrSize)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the delly SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
+        warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
       }
       
@@ -477,15 +541,15 @@ prepare_delly <- function(para,sampleDir,Sample){
       for(type in para$Type){
         
         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+        # trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+        # toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
         
         dfSub=df[df$name==type,]
         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        system(s)
+        # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+        # system(s)
       }
     }else{
       print(paste("Sample has been prepared, skip",sep=""))
@@ -877,7 +941,7 @@ trainModel <- function(para, Sample){
           yInd=which(y==ylabel)
           sd0Ind=which(apply(matrix(x[yInd,],nrow=length(yInd),ncol=ncol(x)),2,sd)<1E-10) # very small sd
           if(length(sd0Ind)>0){
-            print(c(ylabel,sd0Ind))
+            #print(c(ylabel,sd0Ind))
             for(j in sd0Ind){
               xx[yInd,j]=xx[yInd,j]+ rnorm(length(yInd),mean=0,sd=(mean(x[yInd,j])/10+0.01))   # add some noise
             }
@@ -1011,7 +1075,7 @@ modelPredict <- function(para, Sample){
     
     for(type in para$Type){
       
-      print(paste("type=",type,sep=""))
+      print(paste("sample=",sample,", type=",type,sep=""))
       
       SVtype=data.frame(stringsAsFactors=FALSE)
       
