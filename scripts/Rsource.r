@@ -44,7 +44,7 @@ prepare_true <- function(para,sampleDir,Sample){
     
     trueVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern="true.vcf")
     trueVCF=paste(sampleDir,"/",sample,"/",trueVCFtmp,sep="")
-    trueBEDallPre=paste(para$outDir,"/",para$trueDir,"/",sample,sep="")
+    trueBEDallPre=paste(para$tmpDir,"/",para$trueDir,"/",sample,sep="")
     
     # if the file has been processed, no need to processed again
     if(file.exists(paste(trueBEDallPre,"_",para$Type[1],".bed",sep=""))){
@@ -121,8 +121,8 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
   #Sample=para$trainSample
   
   tool="breakdancer"
-  toolDir=paste(para$outDir,"/",para$breakdancerDir,sep="")
-  trueDir=paste(para$outDir,"/",para$trueDir,sep="")
+  toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
+  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
@@ -244,8 +244,8 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
   #Sample=para$trainSample
   
   tool="CNVnator"
-  toolDir=paste(para$outDir,"/",para$CNVnatorDir,sep="")
-  trueDir=paste(para$outDir,"/",para$trueDir,sep="")
+  toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
+  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
@@ -370,8 +370,8 @@ prepare_delly <- function(para,sampleDir,Sample){
   #Sample=para$trainSample
   
   tool="delly"
-  toolDir=paste(para$outDir,"/",para$dellyDir,sep="")
-  trueDir=paste(para$outDir,"/",para$trueDir,sep="")
+  toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
+  trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
   
   for(sample in Sample){
     print(sample)
@@ -498,11 +498,11 @@ prepare_delly <- function(para,sampleDir,Sample){
 # to prepare the data for 
 prepareData <- function(para){
   
-  system(paste("mkdir -p ",para$outDir,sep=""))
-  system(paste("mkdir -p ",para$outDir,"/",para$trueDir,sep=""))
-  system(paste("mkdir -p ",para$outDir,"/",para$breakdancerDir,sep=""))
-  system(paste("mkdir -p ",para$outDir,"/",para$CNVnatorDir,sep=""))
-  system(paste("mkdir -p ",para$outDir,"/",para$dellyDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",para$trueDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",para$breakdancerDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",para$CNVnatorDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",para$dellyDir,sep=""))
   
   ##### for training
   if(para$knownModel==TRUE){
@@ -660,7 +660,7 @@ SV2piece <- function(SVpos, SVscore){
 # a function to be called by formatPieceSV to prepare the data
 formatPieceSVsample <- function(para,sampleDir,Sample){
   
-  pieceDir=paste(para$outDir,"/",para$pieceDir,sep="")
+  pieceDir=paste(para$tmpDir,"/",para$pieceDir,sep="")
   
   #[[type]][[sample]][[as.character(as.integer(binlen))]][[as.character(chr)]]
   for(type in para$Type){
@@ -676,7 +676,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
     
     for(sample in Sample){
       
-      trueBEDtype=paste(para$outDir,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
+      trueBEDtype=paste(para$tmpDir,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
       
       tmp=list.files(path=pieceDir,pattern=paste(type,"_",sample,sep=""))
       if(length(tmp)!=0){
@@ -686,11 +686,11 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         print(paste("type=",type," sample=",sample,sep=""))
         ## read in the data
         # breakdancer
-        toolBEDtype=paste(para$outDir,"/",para$breakdancerDir,"/",sample,"_",type,".bed",sep="")
+        toolBEDtype=paste(para$tmpDir,"/",para$breakdancerDir,"/",sample,"_",type,".bed",sep="")
         res1=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
         
         # CNVnator
-        toolBEDtype=paste(para$outDir,"/",para$CNVnatorDir,"/",sample,"_",type,".bed",sep="")
+        toolBEDtype=paste(para$tmpDir,"/",para$CNVnatorDir,"/",sample,"_",type,".bed",sep="")
         res2=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
         
         # modify CNVnator to avaoid some extreme value
@@ -700,7 +700,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         res2[ind2,5]=-1
         
         # delly
-        toolBEDtype=paste(para$outDir,"/",para$dellyDir,"/",sample,"_",type,".bed",sep="")
+        toolBEDtype=paste(para$tmpDir,"/",para$dellyDir,"/",sample,"_",type,".bed",sep="")
         res3=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
         
         # combine
@@ -765,8 +765,8 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
 # a function to format SV to pieces for training and testing data
 formatPieceSV <- function(para){
   
-  system(paste("mkdir -p ",para$outDir,sep=""))
-  system(paste("mkdir -p ",para$outDir,"/",para$pieceDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",para$pieceDir,sep=""))
   
   ##### for training
   if(para$knownModel==TRUE){
@@ -827,7 +827,7 @@ trainModel <- function(para, Sample){
         y=c()
         
         for(sample in Sample){
-          pieceFile=paste(para$outDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
+          pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
           if(file.info(pieceFile)$size!=0){
             res=read.table(pieceFile,header=F,sep="\t",as.is=T)
             x=rbind(x,res[,5:7])
@@ -1028,7 +1028,7 @@ modelPredict <- function(para, Sample){
         
         for(chr in para$Chr){
           
-          pieceFileXY=paste(para$outDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
+          pieceFileXY=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
           
           if(file.info(pieceFileXY)$size==0){ # no testing data
             next
@@ -1149,8 +1149,8 @@ modelPredict <- function(para, Sample){
       
       # get reference
       out=data.frame(SVall$chr,SVall$startPos,SVall$startPos+1,stringsAsFactors=FALSE)
-      system(paste("mkdir -p ",para$outDir,"/",para$shortBedDir,sep=""))
-      outFile=paste(para$outDir,"/",para$shortBedDir,"/",sample,".short.bed",sep="")
+      system(paste("mkdir -p ",para$tmpDir,"/",para$shortBedDir,sep=""))
+      outFile=paste(para$tmpDir,"/",para$shortBedDir,"/",sample,".short.bed",sep="")
       write.table(out,file=outFile,row.names=F,col.names=F,sep="\t",quote=F)
       REF=as.character(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",outFile," | awk -F \"\\t\" '{print $2}' ",sep=""),intern=T))
       if(length(REF)!=nrow(SVall)){
@@ -1245,6 +1245,7 @@ modelPredict <- function(para, Sample){
 
 ### eva
 # to evaluate the prediction performance compared with truth
+# for piece level evaluation
 eva<-function(yTrue, yPredict){
   # yTrue and yPredict need to be binary value 0,1
   tab=table(factor(yTrue,levels=c(0,1)),factor(yPredict,levels=c(0,1)))
@@ -1266,19 +1267,133 @@ eva<-function(yTrue, yPredict){
 
 ### callerEvaluation
 # to evaluate the caller results compared with true set
-callerEvaluation(para,Sample){
+# SV level evaluation, precision and recall
+callerEvaluation <- function(para,Sample){
   # Sample=para$testSample
   
+  print(paste("[",Sys.time(),"] Evaluation",sep=""))
+  
+  system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
+  
   ## evaluation initialization
-  colName=c("TP","FP","TN","FN","Sen","Spe","Acc","Youden","MCC")
-  evaMat0=matrix(0,nrow=length(Sample),ncol=colName)
+  colName=c("Predict","True","TrueHitPredict","Precision","PredictHitTrue","Recall")
+  evaMat0=matrix(0,nrow=length(Sample),ncol=length(colName))
   rownames(evaMat0)=Sample
   colnames(evaMat0)=colName
-
-  ## tool caller evaluation
   
-  ## SVlearning evaluation
+  ## tool caller evaluation
+  for(tool in para$evaCaller){
+    print(paste("Evaluating ",tool,sep=""))
     
+    for(type in para$Type){
+      
+      evaMat=evaMat0
+      
+      for(sample in Sample){
+        
+        ## true file
+        trueFile=paste(para$tmp,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
+        if(file.exists(trueFile)==F){
+          print(paste("No true file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+          next
+        }
+        
+        if(file.info(trueFile)$size==0){
+          print(paste("Empty True file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          next
+        }
+        
+        ## tool file
+        if(tool=="breakdancer"){
+          toolDir=paste(para$tmp,"/",para$breakdancerDir,sep="")
+        }else if(tool=="CNVnator"){
+          toolDir=paste(para$tmp,"/",para$CNVnatorDir,sep="")
+        }else if(tool=="delly"){
+          toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
+        }else if(tool=="SVlearning"){
+          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,".bed",sep="")
+          if(!file.exists(prepBed)){
+            system(paste("mkdir -p ",para$tmpDir,"/",para$SVlearningDir,sep=""))
+            # prepare SV learning files
+            bedFile=paste(para$outDir,"/",para$bedDir,"/",sample,".bed",sep="")
+            vcfFile=paste(para$outDir,"/",para$vcfDir,"/",sample,".vcf",sep="")
+            if(file.exists(bedFile)){
+              # read in bed to prepare
+              res=read.table(bedFile,sep="\t",as.is=T,header=F)
+              resSub=res[which(res[,6]==paste("<",type,">",sep="")),]
+              if(nrow(resSub)>0){
+                outBed=data.frame(resSub[,1:3],type=type,stringsAsFactors=F)
+                write.table(outBed,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+              }
+            }else if(file.exists(vcfFile)){
+              # read in vcf to prepare
+              res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
+              resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+              if(nrow(resSub)>0){
+                tmp=strsplit(resSub[,8],split=";")
+                SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+                SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+                outVCF=data.frame(resSub[,1:2],SVend,type=type,stringsAsFactors=F)
+                write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+              }
+            }
+          }
+          toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
+          
+        }else{
+          stop(paste("Wrong tool name ",tool,sep=""))
+        }
+        
+        toolFile=paste(toolDir,"/",sample,"_",type,".bed",sep="")
+        
+        if(file.exists(toolFile)==F){
+          if(tool!="SVlearning"){
+            print(paste("No tool file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+          }else{
+            print(paste("No SVlearning BED or VCF file for sample=",sample,", type=",type,", skip evaluation. Suggesting: please do the prediction first.",sep=""))
+          }
+          next
+        }
+        
+        if(file.info(trueFile)$size==0){
+          print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          next
+        }
+        
+        ## mark file 1: true hit predict
+        markFile1=paste(toolDir,"/",sample,"_",type,"_mark1.txt",sep="")
+        
+        # intersect with truth
+        s=paste(para$bedtools," intersect -a ", toolFile, " -b ",trueFile," -f 0.5 -r -c > ",markFile1,sep="")
+        system(s)
+        
+        # read in mark file 1 to evaluate
+        res=read.table(markFile1,header=F,sep="\t",as.is=T)
+        evaMat[sample,"Predict"]=nrow(res)
+        evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
+        evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+        
+        ## mark file 2: predict hit true
+        markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
+        
+        # intersect with truth
+        s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f 0.5 -r -c > ",markFile2,sep="")
+        system(s)
+        
+        # read in the mark file 2 to evaluate
+        res=read.table(markFile2,header=F,sep="\t",as.is=T)
+        evaMat[sample,"True"]=nrow(res)
+        evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
+        evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
+      } # end for(sample in Sample)
+      
+      # write evaMat to file
+      evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".eva.txt",sep="")
+      write.table(data.frame(Sample=Sample,evaMat),file=evaFile,col.names=T,row.names=F,sep="\t",quote=F)
+      
+    } # end for(type in para$Type)
+  }  # end for(tool in para$evaCaller)
+  
 }
 
 
