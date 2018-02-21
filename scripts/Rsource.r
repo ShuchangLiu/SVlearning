@@ -1329,13 +1329,13 @@ eva<-function(yTrue, yPredict){
 }
 
 
-### callerEvaluation
+### callerSVevaluation
 # to evaluate the caller results compared with true set
 # SV level evaluation, precision and recall
-callerEvaluation <- function(para,Sample){
+callerSVevaluation <- function(para,Sample){
   # Sample=para$testSample
   
-  print(paste("[",Sys.time(),"] Evaluation",sep=""))
+  print(paste("[",Sys.time(),"] SV level evaluation",sep=""))
   
   system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
   
@@ -1449,10 +1449,11 @@ callerEvaluation <- function(para,Sample){
         evaMat[sample,"True"]=nrow(res)
         evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
         evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
+        evaMat[is.na(evaMat)]=0 # in case 0 denominator
       } # end for(sample in Sample)
       
       # write evaMat to file
-      evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".eva.txt",sep="")
+      evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".evaSV.txt",sep="")
       write.table(data.frame(Sample=Sample,evaMat),file=evaFile,col.names=T,row.names=F,sep="\t",quote=F)
       
     } # end for(type in para$Type)
@@ -1461,6 +1462,159 @@ callerEvaluation <- function(para,Sample){
 }
 
 
+
+### callerBPevaluation
+# to evaluate the caller results compared with true set
+# Base pair level evaluation, precision and recall
+callerBPevaluation <- function(para,Sample){
+  # Sample=para$testSample
+  
+  print(paste("[",Sys.time(),"] Base pair level evaluation",sep=""))
+  
+  system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
+  
+  ## evaluation initialization
+  colName=c("Predict","True","Overlap","Precision","Recall")
+  evaMat0=matrix(0,nrow=length(Sample),ncol=length(colName))
+  rownames(evaMat0)=Sample
+  colnames(evaMat0)=colName
+  
+  ## tool caller evaluation
+  for(tool in para$evaCaller){
+    print(paste("Evaluating ",tool,sep=""))
+    
+    for(type in para$Type){
+      
+      evaMat=evaMat0
+      
+      for(sample in Sample){
+        
+        ## true file
+        trueFile=paste(para$tmp,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
+        if(file.exists(trueFile)==F){
+          print(paste("No true file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+          next
+        }
+        
+        if(file.info(trueFile)$size==0){
+          print(paste("Empty True file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          next
+        }
+        
+        ## tool file
+        if(tool=="breakdancer"){
+          toolDir=paste(para$tmp,"/",para$breakdancerDir,sep="")
+        }else if(tool=="CNVnator"){
+          toolDir=paste(para$tmp,"/",para$CNVnatorDir,sep="")
+        }else if(tool=="delly"){
+          toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
+        }else if(tool=="SVlearning"){
+          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,".bed",sep="")
+          if(!file.exists(prepBed)){
+            system(paste("mkdir -p ",para$tmpDir,"/",para$SVlearningDir,sep=""))
+            # prepare SV learning files
+            bedFile=paste(para$outDir,"/",para$bedDir,"/",sample,".bed",sep="")
+            vcfFile=paste(para$outDir,"/",para$vcfDir,"/",sample,".vcf",sep="")
+            if(file.exists(bedFile)){
+              # read in bed to prepare
+              res=read.table(bedFile,sep="\t",as.is=T,header=F)
+              resSub=res[which(res[,6]==paste("<",type,">",sep="")),]
+              if(nrow(resSub)>0){
+                outBed=data.frame(resSub[,1:3],type=type,stringsAsFactors=F)
+                write.table(outBed,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+              }
+            }else if(file.exists(vcfFile)){
+              # read in vcf to prepare
+              res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
+              resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+              if(nrow(resSub)>0){
+                tmp=strsplit(resSub[,8],split=";")
+                SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+                SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+                outVCF=data.frame(resSub[,1:2],SVend,type=type,stringsAsFactors=F)
+                write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+              }
+            }
+          }
+          toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
+          
+        }else{
+          stop(paste("Wrong tool name ",tool,sep=""))
+        }
+        
+        toolFile=paste(toolDir,"/",sample,"_",type,".bed",sep="")
+        
+        if(file.exists(toolFile)==F){
+          if(tool!="SVlearning"){
+            print(paste("No tool file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+          }else{
+            print(paste("No SVlearning BED or VCF file for sample=",sample,", type=",type,", skip evaluation. Suggesting: please do the prediction first.",sep=""))
+          }
+          next
+        }
+        
+        if(file.info(trueFile)$size==0){
+          print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          next
+        }
+        
+        ## prepare data
+        toolSV=read.table(toolFile,sep="\t",as.is=T,header=F)
+        trueSV=read.table(trueFile,sep="\t",as.is=T,header=F)
+        
+        toolLen=0  # total tool SV length in bp
+        trueLen=0  # total true SV length in bp
+        overlapLen=0  # total overlapped length in bp
+        
+        for(chr in para$Chr){
+          # subfile for each chr
+          
+          # set tool score for first col & true score for second col 
+          # in case the scoring algorithm is changing. Everything larger than 0 can indicate 
+          toolPos=as.matrix(toolSV[toolSV[,1]==chr,2:3])
+          toolScore=matrix(0,nrow=nrow(toolPos),ncol=2)
+          toolScore[,1]=1  # tool score for first col
+          
+          truePos=as.matrix(trueSV[trueSV[,1]==chr,2:3])
+          trueScore=matrix(0,nrow=nrow(truePos),ncol=2)
+          trueScore[,2]=1  # true score for second col
+          
+          # break into pieces
+          SVpos=rbind(toolPos,truePos)
+          SVscore=rbind(toolScore,trueScore)
+          if(nrow(SVpos)==0){
+            next
+          }
+          pieceRes=SV2piece(SVpos=SVpos, SVscore=SVscore)
+          
+          # count base pair
+          pieceLen=pieceRes$piecePos[,2]-pieceRes$piecePos[,1]+1
+          toolInd=which(pieceRes$pieceScore[,1]>0)
+          trueInd=which(pieceRes$pieceScore[,2]>0)
+          overlapInd=which(pieceRes$pieceScore[,1]>0 & pieceRes$pieceScore[,2]>0)
+          
+          toolLen=toolLen + sum(pieceLen[toolInd])
+          trueLen=trueLen + sum(pieceLen[trueInd])
+          overlapLen=overlapLen + sum(pieceLen[overlapInd])
+        }
+        
+        ## evaluation
+        evaMat[sample,"Predict"]=toolLen
+        evaMat[sample,"True"]=trueLen
+        evaMat[sample,"Overlap"]=overlapLen
+        evaMat[sample,"Precision"]=overlapLen/toolLen
+        evaMat[sample,"Recall"]=overlapLen/trueLen
+        evaMat[is.na(evaMat)]=0 # in case 0 denominator
+      } # end for(sample in Sample)
+      
+      # write evaMat to file
+      evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".evaBP.txt",sep="")
+      write.table(data.frame(Sample=Sample,evaMat),file=evaFile,col.names=T,row.names=F,sep="\t",quote=F)
+      
+    } # end for(type in para$Type)
+  }  # end for(tool in para$evaCaller)
+  
+}
 
 
 
