@@ -9,13 +9,17 @@
   
 rm(list=ls())
 
+args=commandArgs(TRUE)
+
 ## load source function
-source(paste(para$scriptDir,"/Rsource.r",sep=""))
+sourceFile=args[2]
+source(sourceFile)
+#source(paste(para$scriptDir,"/Rsource.r",sep=""))
+
 
 ## read in config file to set parameters
-#args=commandArgs(TRUE)
-#configFileName=args[1]
-configFileName="../example/code/config"  ## change here, for testing 
+configFileName=args[1]
+#configFileName="../example/code/config"  ## change here, for testing 
 
 ## check and format the input paramter
 para=checkFormatPara(configFileName)
@@ -41,9 +45,14 @@ modelPredict(para,Sample=para$testSample)
 
 ## caller evaluation
 if(para$reportTestEvaluation==TRUE){
-  callerEvaluation(para,Sample=para$testSample)
+  callerSVevaluation(para,Sample=para$testSample)
+  callerBPevaluation(para,Sample=para$testSample)
 }
 
+## remove tmp file
+if(para$rmTmpFile==TRUE){
+  system(paste("rm -rf ",para$tmpDir,sep=""))
+}
 
 
 
