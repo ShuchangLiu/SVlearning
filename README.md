@@ -74,7 +74,7 @@ chromStart | start position
 chromEnd | end position
 name | SVlearning SV ID
 REF | reference for chromStart position
-ALT | SV type, either <DEL> or <DUP> for deletion and duplication
+ALT | SV type, either 'DEL' or 'DUP' for deletion and duplication
 INFO-PSTART | start position of the composing piece
 INFO-PEND | end position of the composing piece
 INFO-breakdancer | breakdancer QUAL score for the composing piece
@@ -87,17 +87,17 @@ INFO-LDA | Linear discriminant analysis prediction (0: predict as false; 1: pred
 INFO-RF | Random Forest prediction (0: predict as false; 1: predict as true)
 INFO-adaboost | adaboost prediction (0: predict as false; 1: predict as true)
 
-The INFO part is colon separated within each comoposing piece and comma separated between pieces if a SV is composed by multiple pieces.
+The INFO part is colon separated within each comoposing piece, and comma separated between pieces if a SV is composed by multiple pieces.
 
 #### VCF format output
 The files will be located at outDir/vcfDir as illustrated in config file. The file is illustrated by the header of the VCF file. The FORMAT column is the same as BED INFO column. 
 
 ## Algorithm details
 
-* Model file. If the model is unknown (knownModel==FALSE), the pipeline will train the model by training data; alternatively, users can set knownModel==TRUE and provide model file (modelDir/modelFile) to skip the training step. In this pipeline, we prepared a ready-made model based on 27 1000G samples based on their phase 4 true set. If the users don't have training data available, this model file is suggested as default one.
-* Working pipeline: SVlearning will first prepare the data and cut the the SVs into pieces based on all the margins of SVs called by all the three callers. And then each piece is regarded as one unit to apply machine learning method to predict its true of false. Then neighboring predicted-true pieces will merge back into final SVs.
-* Machine learning (ML) models. The ML models choosing from SVM with radial kernel, SVM with polynomial kernel, Random Forest, Neural Network, Linear discriminant analysis and Adaboost.
-* Voting models. The pipeline takes the majority vote (cutoff determined by 'vote' in config file) among the above ML methods.
+* **Model file:** If the model is unknown (knownModel==FALSE), the pipeline will train the model by training data; alternatively, users can set knownModel==TRUE and provide model file (modelDir/modelFile) to skip the training step. In this pipeline, we prepared a ready-made model based on 27 1000G WGS samples and their phase 4 true sets. If the users don't have training data available, this model file is suggested as default one.
+* **Working pipeline:** SVlearning will first prepare the data and cut the the SVs into pieces based on all the margins of SVs called by all the three callers. And then each piece is regarded as one unit to apply machine learning method to predict its true of false. Then neighboring predicted-true pieces will merge back into final SVs.
+* **Machine learning (ML) models:** The ML models choosing from SVM with radial kernel, SVM with polynomial kernel, Random Forest, Neural Network, Linear discriminant analysis and Adaboost.
+* **Voting models:** The pipeline takes the majority vote (cutoff determined by 'vote' in config file) among the above ML methods.
 
 ## Contact
 
