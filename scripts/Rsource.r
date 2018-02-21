@@ -783,7 +783,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
           for(chr in para$Chr){
             
             pieceFileXY=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
-            selectInd=which(SVlenAll>=binLenAll[binlenInd] & SVlenAll<binLenAll[binlenInd+1] & SVposAll==chr)
+            selectInd=which(SVlenAll>=binLenAll[binlenInd] & SVlenAll<binLenAll[binlenInd+1] & SVposAll[,1]==chr)
             if(length(selectInd)>0){
               pieceOut=SV2piece(SVpos=as.matrix(SVposAll[selectInd,2:3]),SVscore=matrix(SVscoreAll[selectInd,],ncol=ncol(SVscoreAll)))
               out=data.frame(chr,pieceOut$piecePos,type,pieceOut$pieceScore,stringsAsFactors=FALSE)
