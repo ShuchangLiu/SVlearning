@@ -140,6 +140,8 @@ prepare_true <- function(para,sampleDir,Sample){
     endPos=as.integer(endPos)
     
     df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,stringsAsFactors=FALSE)
+    df$startPos=as.integer(df$startPos)
+    df$endPos=as.integer(df$endPos)
     
     ## check endPos>startPos
     switchInd=which(endPos<startPos)
@@ -225,6 +227,8 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       endPos=as.integer(SVend)
       
       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=invcf$QUAL,stringsAsFactors=FALSE)
+      df$startPos=as.integer(df$startPos)
+      df$endPos=as.integer(df$endPos)
       
       ## check endPos>startPos
       switchInd=which(df$endPos<df$startPos)
@@ -357,6 +361,8 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       endPos=as.integer(SVend)
       
       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=score,stringsAsFactors=FALSE)
+      df$startPos=as.integer(df$startPos)
+      df$endPos=as.integer(df$endPos)
       
       ## check endPos>startPos
       switchInd=which(df$endPos<df$startPos)
@@ -488,6 +494,8 @@ prepare_delly <- function(para,sampleDir,Sample){
       endPos=as.integer(SVend)
       
       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=GQ,stringsAsFactors=FALSE)
+      df$startPos=as.integer(df$startPos)
+      df$endPos=as.integer(df$endPos)
       
       ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
       if(para$filterDellyGenotype==TRUE){
@@ -608,11 +616,11 @@ prepareData <- function(para){
   prepare_breakdancer(para=para,sampleDir=sampleDir,Sample=Sample)
   
   # CNVnator
-  print(paste("[",Sys.time(),"] prepare CNVnator training data",sep=""))
+  print(paste("[",Sys.time(),"] prepare CNVnator testing data",sep=""))
   prepare_CNVnator(para=para,sampleDir=sampleDir,Sample=Sample)
   
   # delly
-  print(paste("[",Sys.time(),"] prepare delly training data",sep=""))
+  print(paste("[",Sys.time(),"] prepare delly testing data",sep=""))
   prepare_delly(para=para,sampleDir=sampleDir,Sample=Sample)
   
   ## prepare the python input format
@@ -663,7 +671,7 @@ SV2piece <- function(SVpos, SVscore){
     # iteration 
     for(i in 2:nrow(SVpos)){
       if(SVpos[i,1]!=SVpos[i-1,1]){
-        while(SVpos[i,1]>min(posHP[,1])){ # is posHP is empty, then min(posHP) returns Inf, then the expression is false
+        while(SVpos[i,1]>min(posHP[,1])){ # if posHP is empty, then min(posHP) returns Inf, then the expression is false
           minInd=which.min(posHP[,1])
           if(length(piecePos)==0){
             preRight=-1  # a minus value
@@ -787,6 +795,8 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
             if(length(selectInd)>0){
               pieceOut=SV2piece(SVpos=as.matrix(SVposAll[selectInd,2:3]),SVscore=matrix(SVscoreAll[selectInd,],ncol=ncol(SVscoreAll)))
               out=data.frame(chr,pieceOut$piecePos,type,pieceOut$pieceScore,stringsAsFactors=FALSE)
+              out[,2]=as.integer(out[,2])
+              out[,3]=as.integer(out[,3])
               
               # intersect with truth
               if(file.exists(trueBEDtype)){
@@ -798,6 +808,8 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 system(s)
                 
                 out=read.table(pieceFileMark,header=F,sep="\t",as.is=T) # bd, CNVnator, delly, true
+                out[,2]=as.integer(out[,2])
+                out[,3]=as.integer(out[,3])
                 
                 # remove tmp files
                 system(paste("rm ",pieceFile,sep=""))
@@ -1011,9 +1023,11 @@ piece2SV <- function(piecePos, pieceScore,gapDis=1){
     SVpos=matrix(0,nrow=0,ncol=2)
     SVscore=c()
   }else if(nrow(piecePos)==1){  # only one line
+    piecePos=matrix(as.integer(piecePos),nrow=nrow(piecePos),ncol=ncol(piecePos))
     SVpos=piecePos
     SVscore=paste(c(piecePos[1,],pieceScore[1,]),collapse=":")
   }else{
+    piecePos=matrix(as.integer(piecePos),nrow=nrow(piecePos),ncol=ncol(piecePos))
     N=nrow(pieceScore)
     
     ## initialization
@@ -1089,10 +1103,12 @@ modelPredict <- function(para, Sample){
       binLenAll=c(binLen,Inf)
       
       for(binlen in binLen){
-        
         for(chr in para$Chr){
-          
           pieceFileXY=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
+          
+          if(file.exists(pieceFileXY)==FALSE){
+            stop(paste("No piece file for sample=",sample,", type=",", binlen=",as.character(as.integer(binlen)),", chr=",as.character(chr),". Please run function formatPieceSV() first.",sep=""))
+          }
           
           if(file.info(pieceFileXY)$size==0){ # no testing data
             next
@@ -1188,7 +1204,6 @@ modelPredict <- function(para, Sample){
                          gapDis=para$gapDis)
             SVtype=rbind(SVtype,data.frame(chr=chr,startPos=tmp$SVpos[,1],endPos=tmp$SVpos[,2],type=type,info=tmp$SVscore,stringsAsFactors=FALSE))
           }
-          
         } # end for(chr in para$Chr)
       } # end for(binlen in binLen)
       
@@ -1212,13 +1227,15 @@ modelPredict <- function(para, Sample){
       SVall=SVall[ind,]
       
       # get reference
-      out=data.frame(SVall$chr,SVall$startPos,SVall$startPos+1,stringsAsFactors=FALSE)
+      out=data.frame(SVall$chr,startPos=SVall$startPos,endPos=SVall$startPos+1,stringsAsFactors=FALSE)
+      out$startPos=as.integer(out$startPos)
+      out$endPos=as.integer(out$endPos)
       system(paste("mkdir -p ",para$tmpDir,"/",para$shortBedDir,sep=""))
       outFile=paste(para$tmpDir,"/",para$shortBedDir,"/",sample,".short.bed",sep="")
       write.table(out,file=outFile,row.names=F,col.names=F,sep="\t",quote=F)
       REF=as.character(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",outFile," | awk -F \"\\t\" '{print $2}' ",sep=""),intern=T))
       if(length(REF)!=nrow(SVall)){
-        stop("Errors for reference: non-euqal number of reference and SV, SV position may exceed chromosome length.")
+        stop("Errors for reference: non-equal number of reference and SV, SV position may exceed chromosome length.")
       }
       ## TBD: some called regions with multiple starting N or end N strings, do some final fitering
       
@@ -1229,7 +1246,7 @@ modelPredict <- function(para, Sample){
       ALT=paste("<",SVall$type,">",sep="")
       
       # INFO
-      INFO=paste("SVTYPE=",SVall$type,";SVLEN=",SVall$endPos-SVall$startPos+1,";END=",SVall$endPos,";IMPRECISE",sep="")
+      INFO=paste("SVTYPE=",SVall$type,";SVLEN=",as.character(as.integer(SVall$endPos-SVall$startPos+1)),";END=",as.character(as.integer(SVall$endPos)),";IMPRECISE",sep="")
     }
     
     # BED format
@@ -1243,6 +1260,8 @@ modelPredict <- function(para, Sample){
       }else{
         outSVall=data.frame(chrom=SVall$chr, chromStart=SVall$startPos, chromEnd=SVall$endPos, name=ID, 
                             REF=REF, ALT=ALT, INFO=SVall$info, stringsAsFactors=FALSE) 
+        outSVall$chromStart=as.integer(outSVall$chromStart)
+        outSVall$chromEnd=as.integer(outSVall$chromEnd)
         colnames(outSVall)[7]=paste("PSTART:PEND:breakdancer:CNVnator:delly:",paste(para$MLmethod,collapse=":"),sep="")
         
         cat(paste("#",paste(colnames(outSVall),collapse="\t"),sep=""),file=outFile,sep="\n")
@@ -1294,6 +1313,7 @@ modelPredict <- function(para, Sample){
                             FORMAT=paste("PSTART:PEND:breakdancer:CNVnator:delly:",paste(para$MLmethod,collapse=":"),sep=""),
                             formatInfo=SVall$info, stringsAsFactors=FALSE)
         colnames(outSVall)[10]=sample
+        outSVall$POS=as.integer(outSVall$POS)
         
         cat(paste("#",paste(colnames(outSVall),collapse="\t"),sep=""),file=outFile,sep="\n",append=TRUE)
         write.table(outSVall,file=outFile,append=T,row.names=F,col.names=F,sep="\t",quote=F)
@@ -1387,6 +1407,8 @@ callerSVevaluation <- function(para,Sample){
               resSub=res[which(res[,6]==paste("<",type,">",sep="")),]
               if(nrow(resSub)>0){
                 outBed=data.frame(resSub[,1:3],type=type,stringsAsFactors=F)
+                outBed[,2]=as.integer(outBed[,2])
+                outBed[,3]=as.integer(outBed[,3])
                 write.table(outBed,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
             }else if(file.exists(vcfFile)){
@@ -1396,8 +1418,9 @@ callerSVevaluation <- function(para,Sample){
               if(nrow(resSub)>0){
                 tmp=strsplit(resSub[,8],split=";")
                 SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-                SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+                SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
                 outVCF=data.frame(resSub[,1:2],SVend,type=type,stringsAsFactors=F)
+                outVCF[,2]=as.integer(outVCF[,2])
                 write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
             }
@@ -1521,6 +1544,8 @@ callerBPevaluation <- function(para,Sample){
               resSub=res[which(res[,6]==paste("<",type,">",sep="")),]
               if(nrow(resSub)>0){
                 outBed=data.frame(resSub[,1:3],type=type,stringsAsFactors=F)
+                outBed[,2]=as.integer(outBed[,2])
+                outBed[,2]=as.integer(outBed[,3])
                 write.table(outBed,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
             }else if(file.exists(vcfFile)){
@@ -1530,8 +1555,9 @@ callerBPevaluation <- function(para,Sample){
               if(nrow(resSub)>0){
                 tmp=strsplit(resSub[,8],split=";")
                 SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-                SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+                SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
                 outVCF=data.frame(resSub[,1:2],SVend,type=type,stringsAsFactors=F)
+                outVCF[,2]=as.integer(outVCF[,2])
                 write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
             }
