@@ -262,6 +262,13 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
       }
       
+      # write the original bed 
+      for(type in para$Type){
+        dfTmp=df[df$name==type,]
+        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+      }
+      
       # filter the N region
       if(para$filterNregion==TRUE){
         write.table(df[,1:3],file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
@@ -396,6 +403,13 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
       }
       
+      # write the original bed 
+      for(type in para$Type){
+        dfTmp=df[df$name==type,]
+        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+      }
+      
       # filter the N region
       if(para$filterNregion==TRUE){
         write.table(df[,1:3],file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
@@ -412,7 +426,7 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
         #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
         #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
         
-        dfSub=df[df$name==type,]
+        dfSub=df[df$name==type,] # still working when it's empty
         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
         
         # intersect with truth
@@ -534,6 +548,13 @@ prepare_delly <- function(para,sampleDir,Sample){
       if(length(correctInd)>0){
         warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
         df[correctInd,"endPos"]=tmpChrSize[correctInd]
+      }
+      
+      # write the original bed 
+      for(type in para$Type){
+        dfTmp=df[df$name==type,]
+        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
       }
       
       # filter the N region
@@ -1395,7 +1416,7 @@ callerSVevaluation <- function(para,Sample){
         }else if(tool=="delly"){
           toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
         }else if(tool=="SVlearning"){
-          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,".bed",sep="")
+          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,"_ori.bed",sep="")
           if(!file.exists(prepBed)){
             system(paste("mkdir -p ",para$tmpDir,"/",para$SVlearningDir,sep=""))
             # prepare SV learning files
@@ -1431,7 +1452,7 @@ callerSVevaluation <- function(para,Sample){
           stop(paste("Wrong tool name ",tool,sep=""))
         }
         
-        toolFile=paste(toolDir,"/",sample,"_",type,".bed",sep="")
+        toolFile=paste(toolDir,"/",sample,"_",type,"_ori.bed",sep="")
         
         if(file.exists(toolFile)==F){
           if(tool!="SVlearning"){
@@ -1464,7 +1485,7 @@ callerSVevaluation <- function(para,Sample){
         markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f 0.5 -r -c > ",markFile2,sep="")
+        s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f ",para$evaOverlapRate," -r -c > ",markFile2,sep="")
         system(s)
         
         # read in the mark file 2 to evaluate
@@ -1532,7 +1553,7 @@ callerBPevaluation <- function(para,Sample){
         }else if(tool=="delly"){
           toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
         }else if(tool=="SVlearning"){
-          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,".bed",sep="")
+          prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,"_ori.bed",sep="")
           if(!file.exists(prepBed)){
             system(paste("mkdir -p ",para$tmpDir,"/",para$SVlearningDir,sep=""))
             # prepare SV learning files
@@ -1568,7 +1589,7 @@ callerBPevaluation <- function(para,Sample){
           stop(paste("Wrong tool name ",tool,sep=""))
         }
         
-        toolFile=paste(toolDir,"/",sample,"_",type,".bed",sep="")
+        toolFile=paste(toolDir,"/",sample,"_",type,"_ori.bed",sep="")
         
         if(file.exists(toolFile)==F){
           if(tool!="SVlearning"){
