@@ -511,13 +511,6 @@ prepare_delly <- function(para,sampleDir,Sample){
       df$startPos=as.integer(df$startPos)
       df$endPos=as.integer(df$endPos)
       
-      ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
-      if(para$filterDellyGenotype==TRUE){
-        GT=sapply(tmpValue,function(x) return(x[1]))
-        keepInd=which(GT%in%para$keepGenotype)
-        df=df[keepInd,]
-      }
-      
       ## check endPos>startPos
       switchInd=which(df$endPos<df$startPos)
       tmp=df$startPos[switchInd]
@@ -555,6 +548,13 @@ prepare_delly <- function(para,sampleDir,Sample){
         dfTmp=df[df$name==type,]
         fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
         write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+      }
+      
+      ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
+      if(para$filterDellyGenotype==TRUE){
+        GT=sapply(tmpValue,function(x) return(x[1]))
+        keepInd=which(GT%in%para$keepGenotype)
+        df=df[keepInd,]
       }
       
       # filter the N region
@@ -1029,7 +1029,7 @@ trainModel <- function(para, Sample){
 piece2SV <- function(piecePos, pieceScore,gapDis=1){
   # piecePos -input matrix, these data should be sorted and nonoverlapped, within the same chromosome
   #   piecePos[,1] for left position
-  #   pieceScore[,2] for right position
+  #   piecePos[,2] for right position
   # pieceScore - score matrix corresponding with piecePos, cbind(callerScore, MLpredict)
   # gapDis - gap distance to merge the pieces
   # output-SVpos - left and right position for SV
@@ -1085,6 +1085,84 @@ piece2SV <- function(piecePos, pieceScore,gapDis=1){
 }
 
 
+### mergeSV
+# to merge the SVs from different bins together
+mergeSV <- function(inPos, inScore, SVgapDis=1){
+  # inPos -input matrix, these data should be within the same chromosome
+  #   inPos[,1] for left position
+  #   inPos[,2] for right position
+  # pieceScore - score matrix corresponding with inPos, output score from piece2SV score
+  # SVgapDis - gap distance to merge the SVs
+  # output-outPos - left and right position for merged SV
+  # output-outScore - start:end:pieceScore, comma separated if multiple pieces or multiple SVs
+  
+  if(nrow(inPos)!=length(inScore)){
+    stop("Error: The numbers of input piece are not equal for inPos and inScore")
+  }
+  
+  if(length(inPos)==0){
+    warning("Zero pieces to be merge into SV")
+    outPos=matrix(0,nrow=0,ncol=2)
+    outScore=c()
+  }else if(nrow(inPos)==1){  # only one line
+    outPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
+    outPos=inPos
+    outScore=inScore
+  }else{
+    inPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
+    N=length(inScore)
+    
+    ## sort the input data
+    # by right position
+    ind1=order(inPos[,2])
+    inPos=inPos[ind1,]
+    inScore=inScore[ind1]
+    
+    # by left position
+    ind2=order(inPos[,1])
+    inPos=inPos[ind2,]
+    inScore=inScore[ind2]
+    
+    print(cbind(inPos,inScore))
+    
+    ## initialization
+    outPos=c()
+    outScore=c()
+    
+    currentSVpos=c(inPos[1,1],0)
+    currentSVscore=inScore[1]
+    maxRight=inPos[1,2]
+    
+    ## iteration
+    for(i in 2:N){
+      if(inPos[i,1]-maxRight > SVgapDis){  ## not merge, creat a new SV
+        # add the current SV
+        currentSVpos[2]=maxRight
+        outPos=rbind(outPos,currentSVpos)
+        outScore=c(outScore,currentSVscore)
+        
+        # creat a new SV
+        currentSVpos=c(inPos[i,1],0)
+        currentSVscore=inScore[i]
+        maxRight=inPos[i,2]
+        
+      }else{  # merge
+        maxRight=max(maxRight,inPos[i,2])
+        currentSVscore=paste(currentSVscore,inScore[i],sep=",")
+      }
+    }
+    
+    ## end, complete the last SV
+    currentSVpos[2]=maxRight
+    outPos=rbind(outPos,currentSVpos)
+    outScore=c(outScore,currentSVscore)
+  }
+  
+  rownames(outPos)=NULL
+  return(list(outPos=outPos,outScore=outScore))
+}
+
+
 #### modelPredict
 # to predict the label based on the model
 modelPredict <- function(para, Sample){
@@ -1112,8 +1190,6 @@ modelPredict <- function(para, Sample){
       
       print(paste("sample=",sample,", type=",type,sep=""))
       
-      SVtype=data.frame(stringsAsFactors=FALSE)
-      
       if(type=="DEL"){
         binLen=para$DELbin
       }else if(type=="DUP"){
@@ -1123,8 +1199,13 @@ modelPredict <- function(para, Sample){
       }
       binLenAll=c(binLen,Inf)
       
-      for(binlen in binLen){
-        for(chr in para$Chr){
+      for(chr in para$Chr){
+        
+        # initialization, to record SVpos and SVscore within each chr
+        SVpos1=c()
+        SVscore1=c()
+        
+        for(binlen in binLen){
           pieceFileXY=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
           
           if(file.exists(pieceFileXY)==FALSE){
@@ -1223,14 +1304,24 @@ modelPredict <- function(para, Sample){
                          pieceScore=cbind(matrix(x[selectInd,],nrow=length(selectInd),ncol=ncol(x)),
                                           matrix(y.predict[selectInd,1:modelNum],nrow=length(selectInd),ncol=modelNum)),
                          gapDis=para$gapDis)
-            SVtype=rbind(SVtype,data.frame(chr=chr,startPos=tmp$SVpos[,1],endPos=tmp$SVpos[,2],type=type,info=tmp$SVscore,stringsAsFactors=FALSE))
+            SVpos1=rbind(SVpos1,tmp$SVpos)
+            SVscore1=c(SVscore1,tmp$SVscore)
+            
           }
-        } # end for(chr in para$Chr)
-      } # end for(binlen in binLen)
+        } # end for(binlen in binLen)
+        
+        if(SVgapDis>0){
+          # merge the SVs within given sample, type, chr
+          tmp=mergeSV(inPos=SVpos1,iScore=SVscore1,SVgapDis=para$SVgapDis)
+          SVall=rbind(SVall, data.frame(chr=chr,startPos=tmp$outPos[,1],endPos=tmp$outPos[,2],type=type,info=tmp$outScore,stringsAsFactors=FALSE))
+        }else{  # SVgapDis==0
+          # don't merge SV from different bins
+          SVall=rbind(SVall, data.frame(chr=chr,startPos=SVpos1[,1],endPos=SVpos1[,2],type=type,info=SVscore,stringsAsFactors=FALSE))
+        }
+        
+      } # end for(chr in para$Chr)
       
       ## any code for sample & type bin, can be added here
-      
-      SVall=rbind(SVall, SVtype)
       
     } # end for (type in para$Type)
     
@@ -1472,7 +1563,7 @@ callerSVevaluation <- function(para,Sample){
         markFile1=paste(toolDir,"/",sample,"_",type,"_mark1.txt",sep="")
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", toolFile, " -b ",trueFile," -f 0.5 -r -c > ",markFile1,sep="")
+        s=paste(para$bedtools," intersect -a ", toolFile, " -b ",trueFile," -f ",para$evaOverlapRate," -r -wa -c > ",markFile1,sep="")
         system(s)
         
         # read in mark file 1 to evaluate
@@ -1485,7 +1576,7 @@ callerSVevaluation <- function(para,Sample){
         markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
         
         # intersect with truth
-        s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f ",para$evaOverlapRate," -r -c > ",markFile2,sep="")
+        s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f ",para$evaOverlapRate," -r -wa -c > ",markFile2,sep="")
         system(s)
         
         # read in the mark file 2 to evaluate
