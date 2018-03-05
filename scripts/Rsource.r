@@ -691,6 +691,7 @@ SV2piece <- function(SVpos, SVscore){
     
     # iteration 
     for(i in 2:nrow(SVpos)){
+      #for(i in 2:26){
       if(SVpos[i,1]!=SVpos[i-1,1]){
         while(SVpos[i,1]>min(posHP[,1])){ # if posHP is empty, then min(posHP) returns Inf, then the expression is false
           minInd=which.min(posHP[,1])
@@ -708,11 +709,13 @@ SV2piece <- function(SVpos, SVscore){
           }
           posHP=matrix(posHP[-minInd,],ncol=2)
         }
-        currentPiecePos[2]=SVpos[i,1]-1
-        piecePos=rbind(piecePos,currentPiecePos)
-        currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean) 
-        pieceScore=rbind(pieceScore,currentPieceScore)
-        currentPiecePos=c(SVpos[i,1],0)
+        if(SVpos[i,1]>currentPiecePos[1]){
+          currentPiecePos[2]=SVpos[i,1]-1
+          piecePos=rbind(piecePos,currentPiecePos)
+          currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean) 
+          pieceScore=rbind(pieceScore,currentPieceScore)
+          currentPiecePos=c(SVpos[i,1],0)
+        }
       }
       posHP=rbind(posHP,matrix(c(SVpos[i,2],i),nrow=1,ncol=2))
     }
