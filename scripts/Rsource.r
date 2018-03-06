@@ -691,7 +691,6 @@ SV2piece <- function(SVpos, SVscore){
     
     # iteration 
     for(i in 2:nrow(SVpos)){
-      #for(i in 2:26){
       if(SVpos[i,1]!=SVpos[i-1,1]){
         while(SVpos[i,1]>min(posHP[,1])){ # if posHP is empty, then min(posHP) returns Inf, then the expression is false
           minInd=which.min(posHP[,1])
@@ -1313,13 +1312,15 @@ modelPredict <- function(para, Sample){
           }
         } # end for(binlen in binLen)
         
-        if(SVgapDis>0){
-          # merge the SVs within given sample, type, chr
-          tmp=mergeSV(inPos=SVpos1,iScore=SVscore1,SVgapDis=para$SVgapDis)
-          SVall=rbind(SVall, data.frame(chr=chr,startPos=tmp$outPos[,1],endPos=tmp$outPos[,2],type=type,info=tmp$outScore,stringsAsFactors=FALSE))
-        }else{  # SVgapDis==0
-          # don't merge SV from different bins
-          SVall=rbind(SVall, data.frame(chr=chr,startPos=SVpos1[,1],endPos=SVpos1[,2],type=type,info=SVscore,stringsAsFactors=FALSE))
+        if(length(SVscore1)>0){
+          if(para$SVgapDis>0){
+            # merge the SVs within given sample, type, chr
+            tmp=mergeSV(inPos=SVpos1,iScore=SVscore1,SVgapDis=para$SVgapDis)
+            SVall=rbind(SVall, data.frame(chr=chr,startPos=tmp$outPos[,1],endPos=tmp$outPos[,2],type=type,info=tmp$outScore,stringsAsFactors=FALSE))
+          }else{  # SVgapDis==0
+            # don't merge SV from different bins
+            SVall=rbind(SVall, data.frame(chr=chr,startPos=SVpos1[,1],endPos=SVpos1[,2],type=type,info=SVscore1,stringsAsFactors=FALSE))
+          }
         }
         
       } # end for(chr in para$Chr)
@@ -1329,10 +1330,9 @@ modelPredict <- function(para, Sample){
     } # end for (type in para$Type)
     
     ### prepare for output
-    
-    SVall$chr=factor(SVall$chr,levels=para$Chr)
-    
     if(nrow(SVall)>0){
+      SVall$chr=factor(SVall$chr,levels=para$Chr)
+      
       ### combine all into one file, sort
       # by startPos
       ind=order(SVall$startPos)
