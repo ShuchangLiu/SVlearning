@@ -1538,6 +1538,8 @@ callerSVevaluation <- function(para,Sample){
                 outVCF[,2]=as.integer(outVCF[,2])
                 write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
+            }else{
+              stop(paste("No BED or VCF available for SVlearning sample=",sample,", type=",type,sep=""))
             }
           }
           toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
@@ -1675,6 +1677,8 @@ callerBPevaluation <- function(para,Sample){
                 outVCF[,2]=as.integer(outVCF[,2])
                 write.table(outVCF,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
               }
+            }else{
+              stop(paste("No BED or VCF available for SVlearning sample=",sample,", type=",type,sep=""))
             }
           }
           toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
@@ -1757,6 +1761,151 @@ callerBPevaluation <- function(para,Sample){
   
 }
 
+
+
+### callerSVevaluationVCF
+# to evaluate the caller results compared with true set
+# SV level evaluation, precision and recall
+# take in VCF file directly, not formated files
+callerSVevaluationVCF <- function(para,inputDir,toolName,Sample){
+  
+  # inputDir - directory for tool VCF files
+  # toolName - name of the tool
+  # Sample - total sample to be compared
+  
+  print(paste("[",Sys.time(),"] SV level evaluation on VCF files",sep=""))
+  
+  system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
+  system(paste("mkdir -p ",para$tmpDir,"/",toolName,sep=""))
+  
+  ## evaluation initialization
+  colName=c("Predict","True","TrueHitPredict","Precision","PredictHitTrue","Recall")
+  evaMat0=matrix(0,nrow=length(Sample),ncol=length(colName))
+  rownames(evaMat0)=Sample
+  colnames(evaMat0)=colName
+  
+  ## tool caller evaluation
+  tool=toolName
+  print(paste("Evaluating ",tool,sep=""))
+  
+  for(type in para$Type){
+    
+    evaMat=evaMat0
+    
+    for(sample in Sample){
+      
+      ## true file
+      trueFile=paste(para$tmp,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
+      if(file.exists(trueFile)==F){
+        print(paste("No true file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+        next
+      }
+      
+      if(file.info(trueFile)$size==0){
+        print(paste("Empty True file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+        next
+      }
+      
+      ## tool file
+      prepBed=paste(para$tmpDir,"/",toolName,"/",sample,"_",type,"_ori.bed",sep="")
+      if(!file.exists(prepBed)){
+        # prepare SV learning files
+        tmp=system(paste("ls ",inputDir,"/",sample,"*vcf",sep=""),intern=T)
+        if(length(tmp)==1){
+          vcfFile=tmp
+        }else{
+          stop(paste("Multiple OR no VCF files for sample=",sample,sep=""))
+        }
+        
+        # read in vcf to prepare
+        res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
+        resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+        if(nrow(resSub)>0){
+          tmp=strsplit(resSub[,8],split=";")
+          SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+          SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
+          df=data.frame(chr=resSub[,1],startPos=as.integer(resSub[,2]),endPos=SVend,type=type,stringsAsFactors=F)
+          
+          ## check endPos>startPos
+          switchInd=which(df$endPos<df$startPos)
+          tmp=df$startPos[switchInd]
+          df$startPos[switchInd]=df$endPos[switchInd]
+          df$endPos[switchInd]=tmp
+          
+          # filter the data by chr
+          keepInd=which(as.character(df$chr)%in%para$Chr)
+          df=df[keepInd,]
+          
+          # filter the data with start=end
+          keepInd=which(df$startPos < df$endPos)
+          df=df[keepInd,]
+          
+          # filter the data when end exceeding chromosome size
+          tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+          correctInd=which(df$startPos>tmpChrSize)
+          if(length(correctInd)>0){
+            warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+            df=df[-correctInd,]
+            tmpChrSize=tmpChrSize[-correctInd]
+          }
+          correctInd=which(df$endPos>tmpChrSize)
+          if(length(correctInd)>0){
+            warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
+            df[correctInd,"endPos"]=tmpChrSize[correctInd]
+          }
+          
+          write.table(df,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+        }
+      }  # end if(!file.exists(prepBed))
+   
+      toolFile=prepBed
+      toolDir=paste(para$tmpDir,"/",toolName,sep="")
+      
+      if(file.exists(toolFile)==F){
+          print(paste("No ",toolName," file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+        next
+      }
+      
+      if(file.info(trueFile)$size==0){
+        print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+        next
+      }
+      
+      ## mark file 1: true hit predict
+      markFile1=paste(toolDir,"/",sample,"_",type,"_mark1.txt",sep="")
+      
+      # intersect with truth
+      s=paste(para$bedtools," intersect -a ", toolFile, " -b ",trueFile," -f ",para$evaOverlapRate," -r -wa -c > ",markFile1,sep="")
+      system(s)
+      
+      # read in mark file 1 to evaluate
+      res=read.table(markFile1,header=F,sep="\t",as.is=T)
+      evaMat[sample,"Predict"]=nrow(res)
+      evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
+      evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+      
+      ## mark file 2: predict hit true
+      markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
+      
+      # intersect with truth
+      s=paste(para$bedtools," intersect -a ", trueFile, " -b ",toolFile," -f ",para$evaOverlapRate," -r -wa -c > ",markFile2,sep="")
+      system(s)
+      
+      # read in the mark file 2 to evaluate
+      res=read.table(markFile2,header=F,sep="\t",as.is=T)
+      evaMat[sample,"True"]=nrow(res)
+      evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
+      evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
+      evaMat[is.na(evaMat)]=0 # in case 0 denominator
+    } # end for(sample in Sample)
+    
+    # write evaMat to file
+    evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".evaSV.txt",sep="")
+    write.table(data.frame(Sample=Sample,evaMat),file=evaFile,col.names=T,row.names=F,sep="\t",quote=F)
+    
+  } # end for(type in para$Type)
+  
+}
 
 
 
