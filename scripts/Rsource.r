@@ -1767,16 +1767,27 @@ callerBPevaluation <- function(para,Sample){
 # to evaluate the caller results compared with true set
 # SV level evaluation, precision and recall
 # take in VCF file directly, not formated files
-callerSVevaluationVCF <- function(para,inputDir,toolName,Sample){
+callerSVevaluationVCF <- function(para,toolVCF,inputToolDir,toolName,trueVCF,inputTrueDir,trueName,Sample){
   
-  # inputDir - directory for tool VCF files
+  # toolVCF - bool whether tool is in VCF format 
+  # inputToolDir - directory for tool VCF files
   # toolName - name of the tool
+  # trueVCF - bool whether true is in VCF format
+  # inputTrueDir - directory for true VCF files
+  # trueName - name of the truth
   # Sample - total sample to be compared
   
   print(paste("[",Sys.time(),"] SV level evaluation on VCF files",sep=""))
   
   system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
-  system(paste("mkdir -p ",para$tmpDir,"/",toolName,sep=""))
+  
+  if(toolVCF==TRUE){
+    system(paste("mkdir -p ",para$tmpDir,"/",toolName,sep=""))
+  }
+  
+  if(trueVCF==TRUE){
+    system(paste("mkdir -p ",para$tmpDir,"/",trueName,sep=""))
+  }
   
   ## evaluation initialization
   colName=c("Predict","True","TrueHitPredict","Precision","PredictHitTrue","Recall")
@@ -1795,82 +1806,146 @@ callerSVevaluationVCF <- function(para,inputDir,toolName,Sample){
     for(sample in Sample){
       
       ## true file
-      trueFile=paste(para$tmp,"/",para$trueDir,"/",sample,"_",type,".bed",sep="")
+      prepBed=paste(para$tmpDir,"/",trueName,"/",sample,"_",type,".bed",sep="")
+      if(trueVCF==TRUE){
+        # true file in VCF format
+        if(!file.exists(prepBed)){
+          # prepare SV learning files
+          tmp=system(paste("ls ",inputTrueDir,"/",sample,"*vcf",sep=""),intern=T)
+          if(length(tmp)==1){
+            vcfFile=tmp
+          }else{
+            stop(paste("Multiple true ",trueName," OR no VCF files for sample=",sample,sep=""))
+          }
+          
+          # read in vcf to prepare
+          res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
+          resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+          if(nrow(resSub)>0){
+            tmp=strsplit(resSub[,8],split=";")
+            SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+            SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
+            df=data.frame(chr=resSub[,1],startPos=as.integer(resSub[,2]),endPos=SVend,type=type,stringsAsFactors=F)
+            
+            ## check endPos>startPos
+            switchInd=which(df$endPos<df$startPos)
+            tmp=df$startPos[switchInd]
+            df$startPos[switchInd]=df$endPos[switchInd]
+            df$endPos[switchInd]=tmp
+            
+            # filter the data by chr
+            keepInd=which(as.character(df$chr)%in%para$Chr)
+            df=df[keepInd,]
+            
+            # filter the data with start=end
+            keepInd=which(df$startPos < df$endPos)
+            df=df[keepInd,]
+            
+            # filter the data when end exceeding chromosome size
+            tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+            correctInd=which(df$startPos>tmpChrSize)
+            if(length(correctInd)>0){
+              warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+              df=df[-correctInd,]
+              tmpChrSize=tmpChrSize[-correctInd]
+            }
+            correctInd=which(df$endPos>tmpChrSize)
+            if(length(correctInd)>0){
+              warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
+              df[correctInd,"endPos"]=tmpChrSize[correctInd]
+            }
+            
+            write.table(df,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+          }
+        }  # end if(!file.exists(prepBed))
+      } # end if(trueVCF==TRUE)
+      
+      trueFile=prepBed
+      trueDir=paste(para$tmpDir,"/",trueName,sep="")
+      
       if(file.exists(trueFile)==F){
-        print(paste("No true file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+        print(paste("No true ",trueName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
         next
       }
       
       if(file.info(trueFile)$size==0){
-        print(paste("Empty True file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+        print(paste("Empty true ", trueName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
         next
       }
       
+      
       ## tool file
       prepBed=paste(para$tmpDir,"/",toolName,"/",sample,"_",type,"_ori.bed",sep="")
-      if(!file.exists(prepBed)){
-        # prepare SV learning files
-        tmp=system(paste("ls ",inputDir,"/",sample,"*vcf",sep=""),intern=T)
-        if(length(tmp)==1){
-          vcfFile=tmp
-        }else{
-          stop(paste("Multiple OR no VCF files for sample=",sample,sep=""))
-        }
+      
+      if(toolVCF==TRUE){
+        # tool file in VCF format
         
-        # read in vcf to prepare
-        res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
-        resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
-        if(nrow(resSub)>0){
-          tmp=strsplit(resSub[,8],split=";")
-          SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-          SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
-          df=data.frame(chr=resSub[,1],startPos=as.integer(resSub[,2]),endPos=SVend,type=type,stringsAsFactors=F)
-          
-          ## check endPos>startPos
-          switchInd=which(df$endPos<df$startPos)
-          tmp=df$startPos[switchInd]
-          df$startPos[switchInd]=df$endPos[switchInd]
-          df$endPos[switchInd]=tmp
-          
-          # filter the data by chr
-          keepInd=which(as.character(df$chr)%in%para$Chr)
-          df=df[keepInd,]
-          
-          # filter the data with start=end
-          keepInd=which(df$startPos < df$endPos)
-          df=df[keepInd,]
-          
-          # filter the data when end exceeding chromosome size
-          tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-          correctInd=which(df$startPos>tmpChrSize)
-          if(length(correctInd)>0){
-            warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
-            df=df[-correctInd,]
-            tmpChrSize=tmpChrSize[-correctInd]
-          }
-          correctInd=which(df$endPos>tmpChrSize)
-          if(length(correctInd)>0){
-            warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
-            df[correctInd,"endPos"]=tmpChrSize[correctInd]
+        if(!file.exists(prepBed)){
+          # prepare SV learning files
+          tmp=system(paste("ls ",inputToolDir,"/",sample,"*vcf",sep=""),intern=T)
+          if(length(tmp)==1){
+            vcfFile=tmp
+          }else{
+            stop(paste("Multiple tool ", toolName, " OR no VCF files for sample=",sample,sep=""))
           }
           
-          write.table(df,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
-        }
-      }  # end if(!file.exists(prepBed))
-   
+          # read in vcf to prepare
+          res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
+          resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+          if(nrow(resSub)>0){
+            tmp=strsplit(resSub[,8],split=";")
+            SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+            SVend=as.integer(gsub("END=","",as.character(SVENDtmp)))
+            df=data.frame(chr=resSub[,1],startPos=as.integer(resSub[,2]),endPos=SVend,type=type,stringsAsFactors=F)
+            
+            ## check endPos>startPos
+            switchInd=which(df$endPos<df$startPos)
+            tmp=df$startPos[switchInd]
+            df$startPos[switchInd]=df$endPos[switchInd]
+            df$endPos[switchInd]=tmp
+            
+            # filter the data by chr
+            keepInd=which(as.character(df$chr)%in%para$Chr)
+            df=df[keepInd,]
+            
+            # filter the data with start=end
+            keepInd=which(df$startPos < df$endPos)
+            df=df[keepInd,]
+            
+            # filter the data when end exceeding chromosome size
+            tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+            correctInd=which(df$startPos>tmpChrSize)
+            if(length(correctInd)>0){
+              warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+              df=df[-correctInd,]
+              tmpChrSize=tmpChrSize[-correctInd]
+            }
+            correctInd=which(df$endPos>tmpChrSize)
+            if(length(correctInd)>0){
+              warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
+              df[correctInd,"endPos"]=tmpChrSize[correctInd]
+            }
+            
+            write.table(df,file=prepBed,sep="\t",col.names=F,row.names=F,quote=F)
+          }
+        }  # end if(!file.exists(prepBed))
+        
+      } # end if(toolVCF==TRUE)
+      
       toolFile=prepBed
       toolDir=paste(para$tmpDir,"/",toolName,sep="")
       
       if(file.exists(toolFile)==F){
-          print(paste("No ",toolName," file for sample=",sample,", type=",type,", skip evaluation. Suggestion: please try prepareData function first.",sep=""))
+        print(paste("No tool ",toolName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
         next
       }
       
       if(file.info(trueFile)$size==0){
-        print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+        print(paste("Empty tool ",toolName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
         next
       }
       
+      ##### mark to compare
       ## mark file 1: true hit predict
       markFile1=paste(toolDir,"/",sample,"_",type,"_mark1.txt",sep="")
       
@@ -1900,7 +1975,7 @@ callerSVevaluationVCF <- function(para,inputDir,toolName,Sample){
     } # end for(sample in Sample)
     
     # write evaMat to file
-    evaFile=paste(para$outDir,"/",para$evaDir,"/",tool,"_",type,".evaSV.txt",sep="")
+    evaFile=paste(para$outDir,"/",para$evaDir,"/",toolName,"_",trueName,"_",type,".evaSV.txt",sep="")
     write.table(data.frame(Sample=Sample,evaMat),file=evaFile,col.names=T,row.names=F,sep="\t",quote=F)
     
   } # end for(type in para$Type)
