@@ -47,7 +47,7 @@ checkFormatPara <- function(configFileName){
   }
   
   ### to test all the MLmethod
-  para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
+  #para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
   
   print(para)
   
@@ -92,18 +92,20 @@ prepare_true <- function(para,sampleDir,Sample){
     print(sample)
     
     trueVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern="true.vcf")
+    
+    if(length(trueVCFtmp)==0){
+      print(paste("Sample ",sample," doesn't have true file available, skip",sep=""))
+      next
+    }else{
+      stop(paste("Multiple true files for sample ",sample,sep=""))
+    }
+    
     trueVCF=paste(sampleDir,"/",sample,"/",trueVCFtmp,sep="")
     trueBEDallPre=paste(para$tmpDir,"/",para$trueDir,"/",sample,sep="")
     
     # if the file has been processed, no need to processed again
     if(file.exists(paste(trueBEDallPre,"_",para$Type[1],".bed",sep=""))){
       print(paste("Sample has been processed, skip",sep=""))
-      next
-    }
-    
-    # no true file available, skip
-    if(!file.exists(trueVCF)){
-      print(paste("Sample doesn't have true file available, skip"))
       next
     }
     
