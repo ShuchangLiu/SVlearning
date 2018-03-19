@@ -38,13 +38,18 @@ vote	1
 # filtering
 filterNregion	TRUE  # filter out regions located at N regions
 Nrate	0.2  # filter the SV calls with greater than Nrate N regions
+evaOverlapRate	0.5 # at SV evaluation step, the overlap rate between caller and trueset to define hit
 filterDellyGenotype	TRUE  # only keep 0/1 or 1/1 genotype
 keepGenotype	0/1,1/1  # if filterDellyGenotype==TRUE, the genotype to be kept
 Chr	1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based on the reference genome, contigs are not recommended
+# mark piece by truth
+markPieceRate	0.5 # 0 for at least 1bp overlap
 Type	DEL,DUP  # SV types to analysis, choose from DEL and DUP
 # DEL length bin boundary, comma separated. Use default value if not provided
 DELbin	50,1000,5000,20000,100000
 DUPbin	50,1000,5000,20000,100000
-# the gap when merging piece to SV, increasing this number will encourage more piece to be merged for a longer SV rather than many short SV
-gapDis	1
+# the gap when merging piece to SV, increasing this number will encourage more pieces to be merged for a longer SV rather than many short SV
+PgapDis	1
+# the gap when merging SVs from different bin size, increasing this number will encourage more SVs to be merge for a longer SV
+SVgapDis	1
 rmTmpFile	FALSE  # remove the tmp file or not	
