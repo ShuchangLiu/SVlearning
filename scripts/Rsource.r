@@ -96,7 +96,7 @@ prepare_true <- function(para,sampleDir,Sample){
     if(length(trueVCFtmp)==0){
       print(paste("Sample ",sample," doesn't have true file available, skip",sep=""))
       next
-    }else{
+    }else if(length(trueVCFtmp)>1){
       stop(paste("Multiple true files for sample ",sample,sep=""))
     }
     
@@ -669,23 +669,24 @@ SV2piece <- function(SVpos, SVscore){
     pieceScore=SVscore
   }else{
     
+    scoreNum=ncol(SVscore)
+    
     ##### sort the data by left position first, then right position
     # sort by right position
     sortInd1=order(SVpos[,2])
     SVpos=SVpos[sortInd1,]
-    SVscore=SVscore[sortInd1,]
+    SVscore=matrix(SVscore[sortInd1,],ncol=scoreNum)
     
     # sort by left position
     sortInd2=order(SVpos[,1])
     SVpos=SVpos[sortInd2,]
-    SVscore=SVscore[sortInd2,]
+    SVscore=matrix(SVscore[sortInd2,],ncol=scoreNum)
     
     ## skip remove duplication steps, 
     #since duplciated SVs will have the same mean value for pieces
     
     ##### SV to piece
     # initialize
-    scoreNum=ncol(SVscore)
     pieceScore=c()
     piecePos=c()
     currentPiecePos=c(SVpos[1,1],0)   # current piece position, c(left, right)
@@ -750,6 +751,83 @@ SV2piece <- function(SVpos, SVscore){
     rownames(pieceScore)=NULL
   }
   return(list(piecePos=piecePos,pieceScore=pieceScore))
+}
+
+### mergeSV
+# to merge the SVs from different bins together
+mergeSV <- function(inPos, inScore, SVgapDis=1){
+  # inPos -input matrix, these data should be within the same chromosome
+  #   inPos[,1] for left position
+  #   inPos[,2] for right position
+  # inScore - score vector corresponding with inPos, output score from piece2SV score
+  # SVgapDis - gap distance to merge the SVs
+  # output-outPos - left and right position for merged SV
+  # output-outScore - start:end:pieceScore, comma separated if multiple pieces or multiple SVs
+  
+  if(nrow(inPos)!=length(inScore)){
+    stop("Error: The numbers of input piece are not equal for inPos and inScore")
+  }
+  
+  if(length(inPos)==0){
+    warning("Zero pieces to be merge into SV")
+    outPos=matrix(0,nrow=0,ncol=2)
+    outScore=c()
+  }else if(nrow(inPos)==1){  # only one line
+    outPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
+    outPos=inPos
+    outScore=inScore
+  }else{
+    inPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
+    N=length(inScore)
+    
+    ## sort the input data
+    # by right position
+    ind1=order(inPos[,2])
+    inPos=inPos[ind1,]
+    inScore=inScore[ind1]
+    
+    # by left position
+    ind2=order(inPos[,1])
+    inPos=inPos[ind2,]
+    inScore=inScore[ind2]
+    
+    #print(cbind(inPos,inScore))
+    
+    ## initialization
+    outPos=c()
+    outScore=c()
+    
+    currentSVpos=c(inPos[1,1],0)
+    currentSVscore=inScore[1]
+    maxRight=inPos[1,2]
+    
+    ## iteration
+    for(i in 2:N){
+      if(inPos[i,1]-maxRight > SVgapDis){  ## not merge, creat a new SV
+        # add the current SV
+        currentSVpos[2]=maxRight
+        outPos=rbind(outPos,currentSVpos)
+        outScore=c(outScore,currentSVscore)
+        
+        # creat a new SV
+        currentSVpos=c(inPos[i,1],0)
+        currentSVscore=inScore[i]
+        maxRight=inPos[i,2]
+        
+      }else{  # merge
+        maxRight=max(maxRight,inPos[i,2])
+        currentSVscore=paste(currentSVscore,inScore[i],sep=",")
+      }
+    }
+    
+    ## end, complete the last SV
+    currentSVpos[2]=maxRight
+    outPos=rbind(outPos,currentSVpos)
+    outScore=c(outScore,currentSVscore)
+  }
+  
+  rownames(outPos)=NULL
+  return(list(outPos=outPos,outScore=outScore))
 }
 
 
@@ -824,7 +902,8 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
               out[,3]=as.integer(out[,3])
               
               # intersect with truth
-              if(file.exists(trueBEDtype)){
+              if(para$markPieceRate==0 & file.exists(trueBEDtype)){ 
+                # at least 1bp overlap is marked as y=1
                 pieceFile=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,".bed",sep="")
                 pieceFileMark=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_mark.txt",sep="")
                 
@@ -832,20 +911,78 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 s=paste(para$bedtools," intersect -a ", pieceFile, " -b ",trueBEDtype," -c > ",pieceFileMark,sep="")
                 system(s)
                 
-                out=read.table(pieceFileMark,header=F,sep="\t",as.is=T) # bd, CNVnator, delly, true
+                out=read.table(pieceFileMark,header=F,sep="\t",as.is=T) # chr, start, end, type, bd, CNVnator, delly, true
                 out[,2]=as.integer(out[,2])
                 out[,3]=as.integer(out[,3])
+                
+                # correct the values for ML input
+                # modify y
+                out[out[,8]>1,8]=1
                 
                 # remove tmp files
                 system(paste("rm ",pieceFile,sep=""))
                 system(paste("rm ",pieceFileMark,sep=""))
+                
+              }else if(para$markPieceRate>0 & file.exists(trueBEDtype)){
+                # at least 50% of the piece region has to overlap with truth to mark as y=1
+                
+                # prepare nonOverlap true file
+                trueNonOverlap=paste(para$tmpDir,"/",para$trueDir,"/",sample,"_",type,"_nonOverlap.bed",sep="")
+                if(file.exists(trueNonOverlap)==F){
+                  
+                  if(file.info(trueBEDtype)==0){
+                    # empty file
+                    write.table(c(),file=trueNonOverlap,sep="\t",col.names=F,row.names=F,quote=F)
+                  }else{
+                    inTrue=read.table(trueBEDtype,header=F,sep="\t",as.is=T)
+                    
+                    outTrue=c()
+                    for(chrTrue in para$Chr){
+                      subInd=which(inTrue[,1]==chrTrue)
+                      if(length(subInd)==0){
+                        next
+                      }
+                      mergeTrue=mergeSV(inPos=matrix(as.integer(unlist(inTrue[subInd,2:3])),ncol=2),inScore=rep(1,times=length(subInd)),SVgapDis=1)
+                      outTrue=rbind(outTrue,data.frame(chr=chrTrue,startPos=mergeTrue$outPos[,1],endPos=mergeTrue$outPos[,2],type=type,stringsAsFactors=FALSE))
+                    }
+                    
+                    write.table(outTrue,file=trueNonOverlap,col.names=F,row.names=F,quote=F,sep="\t")
+                  }
+                }
+                
+                # prepare piece file
+                pieceFile=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,".bed",sep="")
+                write.table(out,file=pieceFile,sep="\t",col.names=F,row.names=F,quote=F)
+                
+                # intersect
+                pieceFileMark=paste(pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_mark.txt",sep="")
+                s=paste(para$bedtools," intersect -a ", pieceFile, " -b ",trueNonOverlap," -wao > ",pieceFileMark,sep="")
+                system(s)
+                
+                interFile=read.table(pieceFileMark,header=F,sep="\t",as.is=T) 
+                # chr, start, end, type, bd, CNVnator, delly, trueChr, trueStart, trueEnd, trueType, overlapBP
+                interFile[,2]=as.integer(interFile[,2])
+                interFile[,3]=as.integer(interFile[,3])
+                
+                out=interFile[duplicated(interFile[,1:7])==FALSE,1:7]
+                pieceFullLen=out[,3]-out[,2]+1
+                
+                pieceMark=apply(interFile[,2:3],1,paste,collapse="_")
+                interFileSplit=split(interFile,f=pieceMark)
+                overlapLen=sapply(interFileSplit,function(x) sum(x[,12]))
+                selectedInd=which(overlapLen/pieceFullLen >= para$markPieceRate)
+                
+                out=cbind(out,0)
+                out[selectedInd,8]=1
+                
+                # remove tmp files
+                system(paste("rm ",pieceFile,sep=""))
+                system(paste("rm ",pieceFileMark,sep=""))
+                
               }else{
-                out=cbind(out,0)  # y=0 if no known truth
+                # y=0 if no known truth
+                out=cbind(out,0)  
               }
-              
-              # correct the values for ML input
-              # modify y
-              out[out[,8]>1,8]=1
               
               write.table(out,file=pieceFileXY,sep="\t",col.names=F,row.names=F,quote=F)
               
@@ -1088,83 +1225,6 @@ piece2SV <- function(piecePos, pieceScore,gapDis=1){
   return(list(SVpos=SVpos,SVscore=SVscore))
 }
 
-
-### mergeSV
-# to merge the SVs from different bins together
-mergeSV <- function(inPos, inScore, SVgapDis=1){
-  # inPos -input matrix, these data should be within the same chromosome
-  #   inPos[,1] for left position
-  #   inPos[,2] for right position
-  # pieceScore - score matrix corresponding with inPos, output score from piece2SV score
-  # SVgapDis - gap distance to merge the SVs
-  # output-outPos - left and right position for merged SV
-  # output-outScore - start:end:pieceScore, comma separated if multiple pieces or multiple SVs
-  
-  if(nrow(inPos)!=length(inScore)){
-    stop("Error: The numbers of input piece are not equal for inPos and inScore")
-  }
-  
-  if(length(inPos)==0){
-    warning("Zero pieces to be merge into SV")
-    outPos=matrix(0,nrow=0,ncol=2)
-    outScore=c()
-  }else if(nrow(inPos)==1){  # only one line
-    outPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
-    outPos=inPos
-    outScore=inScore
-  }else{
-    inPos=matrix(as.integer(inPos),nrow=nrow(inPos),ncol=ncol(inPos))
-    N=length(inScore)
-    
-    ## sort the input data
-    # by right position
-    ind1=order(inPos[,2])
-    inPos=inPos[ind1,]
-    inScore=inScore[ind1]
-    
-    # by left position
-    ind2=order(inPos[,1])
-    inPos=inPos[ind2,]
-    inScore=inScore[ind2]
-    
-    print(cbind(inPos,inScore))
-    
-    ## initialization
-    outPos=c()
-    outScore=c()
-    
-    currentSVpos=c(inPos[1,1],0)
-    currentSVscore=inScore[1]
-    maxRight=inPos[1,2]
-    
-    ## iteration
-    for(i in 2:N){
-      if(inPos[i,1]-maxRight > SVgapDis){  ## not merge, creat a new SV
-        # add the current SV
-        currentSVpos[2]=maxRight
-        outPos=rbind(outPos,currentSVpos)
-        outScore=c(outScore,currentSVscore)
-        
-        # creat a new SV
-        currentSVpos=c(inPos[i,1],0)
-        currentSVscore=inScore[i]
-        maxRight=inPos[i,2]
-        
-      }else{  # merge
-        maxRight=max(maxRight,inPos[i,2])
-        currentSVscore=paste(currentSVscore,inScore[i],sep=",")
-      }
-    }
-    
-    ## end, complete the last SV
-    currentSVpos[2]=maxRight
-    outPos=rbind(outPos,currentSVpos)
-    outScore=c(outScore,currentSVscore)
-  }
-  
-  rownames(outPos)=NULL
-  return(list(outPos=outPos,outScore=outScore))
-}
 
 
 #### modelPredict
@@ -1423,7 +1483,7 @@ modelPredict <- function(para, Sample){
       }
       
       if(nrow(SVall)==0){
-        cat(paste("#CHROM","POS","ID","REF","ALT", "QUAL","FILTER","INFO","FORMAT",sample,sep="\t"),file=outFile,sep="\n")
+        cat(paste("#CHROM","POS","ID","REF","ALT", "QUAL","FILTER","INFO","FORMAT",sample,sep="\t"),file=outFile,sep="\n",append=TRUE)
       }else{
         
         outSVall=data.frame(CHROM=SVall$chr, POS=SVall$startPos, ID=ID, REF=REF, ALT=ALT, QUAL=".",FILTER="PASS", INFO=INFO,
@@ -1893,7 +1953,16 @@ callerSVevaluationVCF <- function(para,toolVCF,inputToolDir,toolName,trueVCF,inp
           
           # read in vcf to prepare
           res=read.table(vcfFile,sep="\t",as.is=T,header=F,comment.char="#")
-          resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+          
+          if(toolName=="manta"){
+            svtype=sapply(strsplit(res[,3],split=":"), function(x) return(gsub("Manta","",x[1])))
+            resSub=res[which(svtype==type),]
+          }else{
+            resSub=res[which(res[,5]==paste("<",type,">",sep="")),]
+          }
+          
+          
+          
           if(nrow(resSub)>0){
             tmp=strsplit(resSub[,8],split=";")
             SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
