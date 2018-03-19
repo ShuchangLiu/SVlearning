@@ -17,6 +17,10 @@ checkFormatPara <- function(configFileName){
   para$DELbin=as.integer(para$DELbin)
   para$DUPbin=as.integer(para$DUPbin)
   para$Chr=as.character(para$Chr)
+  para$pieceBalanceRate=as.numeric(para$pieceBalanceRate)
+  para$PgapDis=as.numeric(para$PgapDis)
+  para$SVgapDis=as.numeric(para$SVgapDis)
+  
   
   # ref len file
   para$refLen=rep(0,times=length(para$Chr))
@@ -1091,21 +1095,22 @@ trainModel <- function(para, Sample){
           next
         }
         
-        # make y=0 and y=1 equally
+        # balance y=0 and y=1 to make num(y=1)/num(y=0) = para$pieceBalanceRate  ### TBD@@@@@@@ test here
         y0Ind=which(y==0)
         y1Ind=which(y==1)
-        if(length(y0Ind)>length(y1Ind)){
-          # then make the y1Ind the same number as y0Ind
-          y1Ind=sample(y1Ind,size=length(y0Ind),replace=T)
-        }else if(length(y0Ind)<length(y1Ind)){
-          # make the y0Ind the same number as y1Ind
-          y0Ind=sample(y0Ind,size=length(y1Ind),replace=T)
+        if(length(y0Ind)*para$pieceBalanceRate>length(y1Ind)){
+          # increase y1 number 
+          y1Ind=c(y1Ind,sample(y1Ind,size=max(0,round(length(y0Ind)*para$pieceBalanceRate-length(y1Ind)),replace=T))) # at least one copy
+        }else{
+          # increase y0 number
+          y0Ind=c(sample(y0Ind,size=max(0,round(length(y1Ind)/para$pieceBalanceRate-length(y0Ind))),replace=T)) # at least one copy
         }
         
         x=x[c(y0Ind,y1Ind),]
         y=y[c(y0Ind,y1Ind)]
         colnames(x)=NULL
         x=as.matrix(x)
+        
         
         ### train the model
         # to avoid constant features
