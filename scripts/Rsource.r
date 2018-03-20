@@ -1028,6 +1028,107 @@ formatPieceSV <- function(para){
 }
 
 
+#### applyTrain
+# a function to apply each ML model training individually
+applyTrain <- function(para,x,y,type,binlen,chr){
+  # x - training x matrix, piece x features
+  # y - training y, vector with length to be number of pieces
+  # output: outModel - return the model list
+  
+  ## check input format
+  if(nrow(x)!=length(y)){
+    stop(paste("nrow(x) != length(y)",sep=""))
+  }
+  
+  ## model initialization
+  outModel=list()
+  for(modelName in para$MLmethod){
+    outModel[[modelName]]=NA
+  }
+  
+  ## check y label
+  if(length(y)==0){
+    # no supporting training data
+    print(paste("No supporting training data for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+    return(outModel)
+  }else if(length(unique(y))==1){
+    # only one y label
+    print(paste("Only y=",unique(y)," for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+    return(outModel)
+  }else if (sum(y==0)==1){ # otherwise 'sample' function will get error
+    print(paste("Not enough number of y=0 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+    return(outModel)
+  }else if(sum(y==1)==1){ # # otherwise 'sample' function will get error
+    print(paste("Not enough number of y=1 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
+    return(outModel)
+  }
+  
+  # balance y=0 and y=1 to make num(y=1)/num(y=0) = para$pieceBalanceRate
+  y0Ind=which(y==0)
+  y1Ind=which(y==1)
+  if(length(y0Ind)*para$pieceBalanceRate>length(y1Ind)){
+    # increase y1 number 
+    y1Ind=c(y1Ind,sample(y1Ind,size=max(0,round(length(y0Ind)*para$pieceBalanceRate-length(y1Ind))),replace=T)) # at least one copy
+  }else{
+    # increase y0 number
+    y0Ind=c(y0Ind,sample(y0Ind,size=max(0,round(length(y1Ind)/para$pieceBalanceRate-length(y0Ind))),replace=T)) # at least one copy
+  }
+  
+  x=x[c(y0Ind,y1Ind),]
+  y=y[c(y0Ind,y1Ind)]
+  colnames(x)=NULL
+  x=as.matrix(x)
+  
+  ## to avoid constant features
+  ## TBD: check this part later, either assign some random values OR remove the constant features
+  xx=x
+  for(ylabel in c(0,1)){
+    yInd=which(y==ylabel)
+    sd0Ind=which(apply(matrix(x[yInd,],nrow=length(yInd),ncol=ncol(x)),2,sd)<1E-10) # very small sd
+    if(length(sd0Ind)>0){
+      #print(c(ylabel,sd0Ind))
+      for(j in sd0Ind){
+        xx[yInd,j]=xx[yInd,j]+ rnorm(length(yInd),mean=0,sd=(mean(x[yInd,j])/10+0.01))   # add some noise
+      }
+    }
+  }
+  
+  # model 1: SVM radial
+  if("SVMradial"%in%para$MLmethod){
+    outModel[["SVMradial"]] = svm(x=xx, y=as.factor(y), kernel="radial", cost = 100, probability=TRUE)  # default cost
+  }
+  
+  # model 2: SVM polynomial
+  if("SVMpolynomial"%in%para$MLmethod){
+    outModel[["SVMpolynomial"]] = svm(x=xx, y=as.factor(y), kernel="polynomial", cost = 100, probability=TRUE)  # default cost
+  }
+  
+  # model 3: RF
+  if("RF"%in%para$MLmethod){
+    outModel[["RF"]]=randomForest(x=x,y=as.factor(y))
+  }
+  
+  # model 4: NN
+  if("NN"%in%para$MLmethod){
+    yy=cbind(y,1-y)
+    outModel[["NN"]] = nnet(x, yy,size = 2, rang = 0.1, decay = 5e-4, maxit = 200)  # adjust parameters later
+  }
+  
+  # model 5: LDA
+  if("LDA"%in%para$MLmethod){
+    outModel[["LDA"]] = lda(x=xx,grouping=as.factor(y))
+  }
+  
+  # model 6: adaboost
+  if("adaboost"%in%para$MLmethod){
+    prepData=data.frame(x,Y=y)
+    prepData$Y=factor(prepData$Y)
+    outModel[["adaboost"]] = adaboost(Y ~., prepData,nIter=100)
+  }
+  
+  return(outModel)
+}
+
 
 #### trainModel
 # a function to train the SVlearning model
@@ -1039,11 +1140,6 @@ trainModel <- function(para, Sample){
   
   model=list()
   #[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
-  
-  modelNA=list()
-  for(modelName in para$MLmethod){
-    modelNA[[modelName]]=NA
-  }
   
   for(type in para$Type){
     
@@ -1062,105 +1158,49 @@ trainModel <- function(para, Sample){
       print(paste("type=",type,", binlen=",as.character(as.integer(binlen)),sep=""))
       model[[type]][[as.character(as.integer(binlen))]]=list()
       
-      for(chr in para$Chr){
+      if(para$binByChr==T){
+        # train the model by chromosome
+        
+        for(chr in para$Chr){
+          ### prepare training data
+          x=c()
+          y=c()
+          
+          for(sample in Sample){
+            pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
+            if(file.info(pieceFile)$size!=0){
+              res=read.table(pieceFile,header=F,sep="\t",as.is=T)
+              x=rbind(x,res[,5:7])
+              y=c(y,res[,8])
+            }
+          }
+          
+          ### train the model
+          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]]=applyTrain(para,x,y,type,binlen,chr)
+          
+        } # end for(chr in para$Chr)
+      }else{
+        # pool all the chromosomes together
         
         ### prepare training data
         x=c()
         y=c()
         
-        for(sample in Sample){
-          pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
-          if(file.info(pieceFile)$size!=0){
-            res=read.table(pieceFile,header=F,sep="\t",as.is=T)
-            x=rbind(x,res[,5:7])
-            y=c(y,res[,8])
-          }
-        }
-        
-        model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]]=modelNA
-        
-        if(length(y)==0){
-          # no supporting training data
-          print(paste("No supporting training data for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
-          next
-        }else if(length(unique(y))==1){
-          # only one y label
-          print(paste("Only y=",unique(y)," for type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
-          next
-        }else if (sum(y==0)==1){
-          print(paste("Not enough number of y=0 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
-          next
-        }else if(sum(y==1)==1){
-          print(paste("Not enough number of y=1 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
-          next
-        }
-        
-        # balance y=0 and y=1 to make num(y=1)/num(y=0) = para$pieceBalanceRate  ### TBD@@@@@@@ test here
-        y0Ind=which(y==0)
-        y1Ind=which(y==1)
-        if(length(y0Ind)*para$pieceBalanceRate>length(y1Ind)){
-          # increase y1 number 
-          y1Ind=c(y1Ind,sample(y1Ind,size=max(0,round(length(y0Ind)*para$pieceBalanceRate-length(y1Ind)),replace=T))) # at least one copy
-        }else{
-          # increase y0 number
-          y0Ind=c(sample(y0Ind,size=max(0,round(length(y1Ind)/para$pieceBalanceRate-length(y0Ind))),replace=T)) # at least one copy
-        }
-        
-        x=x[c(y0Ind,y1Ind),]
-        y=y[c(y0Ind,y1Ind)]
-        colnames(x)=NULL
-        x=as.matrix(x)
-        
-        
-        ### train the model
-        # to avoid constant features
-        ## TBD: check this part later, either assign some random values OR remove the constant features
-        xx=x
-        for(ylabel in c(0,1)){
-          yInd=which(y==ylabel)
-          sd0Ind=which(apply(matrix(x[yInd,],nrow=length(yInd),ncol=ncol(x)),2,sd)<1E-10) # very small sd
-          if(length(sd0Ind)>0){
-            #print(c(ylabel,sd0Ind))
-            for(j in sd0Ind){
-              xx[yInd,j]=xx[yInd,j]+ rnorm(length(yInd),mean=0,sd=(mean(x[yInd,j])/10+0.01))   # add some noise
+        for(chr in para$Chr){
+          for(sample in Sample){
+            pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
+            if(file.info(pieceFile)$size!=0){
+              res=read.table(pieceFile,header=F,sep="\t",as.is=T)
+              x=rbind(x,res[,5:7])
+              y=c(y,res[,8])
             }
           }
-        }
+        } 
         
-        # model 1: SVM radial
-        if("SVMradial"%in%para$MLmethod){
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["SVMradial"]] = svm(x=xx, y=as.factor(y), kernel="radial", cost = 100, probability=TRUE)  # default cost
-        }
-        
-        # model 2: SVM polynomial
-        if("SVMpolynomial"%in%para$MLmethod){
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["SVMpolynomial"]] = svm(x=xx, y=as.factor(y), kernel="polynomial", cost = 100, probability=TRUE)  # default cost
-        }
-        
-        # model 3: RF
-        if("RF"%in%para$MLmethod){
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["RF"]]=randomForest(x=x,y=as.factor(y))
-        }
-        
-        # model 4: NN
-        if("NN"%in%para$MLmethod){
-          yy=cbind(y,1-y)
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["NN"]] = nnet(x, yy,size = 2, rang = 0.1, decay = 5e-4, maxit = 200)  # can adjust parameters later
-        }
-        
-        # model 5: LDA
-        if("LDA"%in%para$MLmethod){
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["LDA"]] = lda(x=xx,grouping=as.factor(y))
-        }
-        
-        # model 6: adaboost
-        if("adaboost"%in%para$MLmethod){
-          prepData=data.frame(x,Y=y)
-          prepData$Y=factor(prepData$Y)
-          model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][["adaboost"]] = adaboost(Y ~., prepData,nIter=100)
-        }
-        
-      } # end for(chr in para$Chr)
+        ### train the model
+        model[[type]][[as.character(as.integer(binlen))]][["allChr"]]=applyTrain(para,x,y,type,binlen,chr="allChr")
+      }
+      
     } # end for(binlen in binLen)
   }  # end for(type in para$Type)
   
@@ -1231,7 +1271,6 @@ piece2SV <- function(piecePos, pieceScore,gapDis=1){
 }
 
 
-
 #### modelPredict
 # to predict the label based on the model
 modelPredict <- function(para, Sample){
@@ -1246,7 +1285,6 @@ modelPredict <- function(para, Sample){
   #[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
   
   modelNum=length(para$MLmethod)
-  callerNum=3  # currently three caller, change this later
   
   #### prediction within each bin
   for(sample in Sample){
@@ -1269,6 +1307,12 @@ modelPredict <- function(para, Sample){
       binLenAll=c(binLen,Inf)
       
       for(chr in para$Chr){
+        
+        if(para$binByChr==T){
+          chrName=as.character("chr")
+        }else{
+          chrName="allChr"
+        }
         
         # initialization, to record SVpos and SVscore within each chr
         SVpos1=c()
@@ -1298,7 +1342,7 @@ modelPredict <- function(para, Sample){
           # model 1: SVM radial
           modelName="SVMradial"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1309,7 +1353,7 @@ modelPredict <- function(para, Sample){
           # model 2: SVM polynomial
           modelName="SVMpolynomial"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1320,7 +1364,7 @@ modelPredict <- function(para, Sample){
           # model 3: RF
           modelName="RF"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1331,7 +1375,7 @@ modelPredict <- function(para, Sample){
           # model 4: NN
           modelName="NN"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1343,7 +1387,7 @@ modelPredict <- function(para, Sample){
           # model 5: LDA
           modelName="LDA"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1354,7 +1398,7 @@ modelPredict <- function(para, Sample){
           # model 6: adaboost
           modelName="adaboost"
           if(modelName%in%para$MLmethod){
-            currentModel=model[[type]][[as.character(as.integer(binlen))]][[as.character(chr)]][[modelName]]
+            currentModel=model[[type]][[as.character(as.integer(binlen))]][[chrName]][[modelName]]
             if(is.null(currentModel) | all(is.na(currentModel))){
               print(paste("No model for sample=",sample,", type=",type,", binlen=",binlen,", chr=",chr,", model=",modelName,", predict all as 0",sep=""))
             }else{
@@ -1419,7 +1463,7 @@ modelPredict <- function(para, Sample){
       if(length(REF)!=nrow(SVall)){
         stop("Errors for reference: non-equal number of reference and SV, SV position may exceed chromosome length.")
       }
-      ## TBD: some called regions with multiple starting N or end N strings, do some final fitering
+      ## TBD: some called regions with multiple starting N or end N strings, do some final filtering
       
       # ID name
       ID=paste("SVlearing",1:nrow(SVall),sep="_")
