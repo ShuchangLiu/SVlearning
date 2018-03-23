@@ -277,8 +277,11 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(df[,1:3],file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+        if(length(Ncount)!=nrow(df)){
+          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=breakdancer",sep=""))
+        }
         Npercent=Ncount/(df$endPos-df$startPos+1)
         keepInd=which(Npercent<para$Nrate)
         df=df[keepInd,]
@@ -418,8 +421,11 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(df[,1:3],file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+        if(length(Ncount)!=nrow(df)){
+          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=CNVnator",sep=""))
+        }
         Npercent=Ncount/(df$endPos-df$startPos+1)
         keepInd=which(Npercent<para$Nrate)
         df=df[keepInd,]
@@ -565,8 +571,11 @@ prepare_delly <- function(para,sampleDir,Sample){
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(df[,1:3],file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+        if(length(Ncount)!=nrow(df)){
+          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=delly",sep=""))
+        }
         Npercent=Ncount/(df$endPos-df$startPos+1)
         keepInd=which(Npercent<para$Nrate)
         df=df[keepInd,]
@@ -866,11 +875,19 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         ## read in the data
         # breakdancer
         toolBEDtype=paste(para$tmpDir,"/",para$breakdancerDir,"/",sample,"_",type,".bed",sep="")
-        res1=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        if(file.info(toolBEDtype)$size!=0){
+          res1=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        }else{
+          res1=matrix(0,nrow=0,ncol=5)
+        }
         
         # CNVnator
         toolBEDtype=paste(para$tmpDir,"/",para$CNVnatorDir,"/",sample,"_",type,".bed",sep="")
-        res2=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        if(file.info(toolBEDtype)$size!=0){
+          res2=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        }else{
+          res2=matrix(0,nrow=0,ncol=5)
+        }
         
         # modify CNVnator to avaoid some extreme value
         ind1=res2[,5]<0
@@ -880,7 +897,11 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         
         # delly
         toolBEDtype=paste(para$tmpDir,"/",para$dellyDir,"/",sample,"_",type,".bed",sep="")
-        res3=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        if(file.info(toolBEDtype)$size!=0){
+          res3=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
+        }else{
+          res3=matrix(0,nrow=0,ncol=5)
+        }
         
         # combine
         SVposAll=rbind(res1[,1:3],res2[,1:3],res3[,1:3])
@@ -928,7 +949,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 system(paste("rm ",pieceFileMark,sep=""))
                 
               }else if(para$markPieceRate>0 & file.exists(trueBEDtype)){
-                # at least 50% of the piece region has to overlap with truth to mark as y=1
+                # at least markPiecerRate of the piece region has to overlap with truth to mark as y=1
                 
                 # prepare nonOverlap true file
                 trueNonOverlap=paste(para$tmpDir,"/",para$trueDir,"/",sample,"_",type,"_nonOverlap.bed",sep="")
