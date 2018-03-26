@@ -254,11 +254,11 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       keepInd=which(df$startPos < df$endPos)
       df=df[keepInd,]
       
-      # filter the data when end exceeding chromsome size
+      # filter the data when end exceeding chromsome size or start smaller than 0
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize)
+      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
@@ -277,7 +277,7 @@ prepare_breakdancer <- function(para,sampleDir,Sample){
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
         if(length(Ncount)!=nrow(df)){
           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=breakdancer",sep=""))
@@ -398,11 +398,11 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       keepInd=which(df$startPos < df$endPos)
       df=df[keepInd,]
       
-      # filter the data when end exceeding chromsome size
+      # filter the data when end exceeding chromsome size or start smaller than 0
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize)
+      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
@@ -421,7 +421,7 @@ prepare_CNVnator <- function(para,sampleDir,Sample){
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
         if(length(Ncount)!=nrow(df)){
           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=CNVnator",sep=""))
@@ -502,6 +502,9 @@ prepare_delly <- function(para,sampleDir,Sample){
       tmpValue=strsplit(invcf[,10],split=":")
       GQ=as.numeric(sapply(tmpValue,function(x) return(x[3])))
       
+      # genotype: GT
+      GT=sapply(tmpValue,function(x) return(x[1]))
+      
       startPos=as.integer(invcf$POS)
       
       # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
@@ -519,7 +522,7 @@ prepare_delly <- function(para,sampleDir,Sample){
       # use SV END directly, not using SVLEN
       endPos=as.integer(SVend)
       
-      df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=GQ,stringsAsFactors=FALSE)
+      df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=GQ, GT=GT,stringsAsFactors=FALSE)
       df$startPos=as.integer(df$startPos)
       df$endPos=as.integer(df$endPos)
       
@@ -541,11 +544,11 @@ prepare_delly <- function(para,sampleDir,Sample){
       keepInd=which(df$startPos < df$endPos)
       df=df[keepInd,]
       
-      # filter the data when end exceeding chromsome size
+      # filter the data when end exceeding chromsome size or start smaller than 0
       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize)
+      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
       if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size, remove these SVs",sep=""))
+        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
         df=df[-correctInd,]
         tmpChrSize=tmpChrSize[-correctInd]
       }
@@ -564,14 +567,13 @@ prepare_delly <- function(para,sampleDir,Sample){
       
       ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
       if(para$filterDellyGenotype==TRUE){
-        GT=sapply(tmpValue,function(x) return(x[1]))
-        keepInd=which(GT%in%para$keepGenotype)
+        keepInd=which(df$GT%in%para$keepGenotype)
         df=df[keepInd,]
       }
       
       # filter the N region
       if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]),as.integer(df[,3]+1)),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
         if(length(Ncount)!=nrow(df)){
           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=delly",sep=""))
