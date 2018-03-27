@@ -1332,7 +1332,7 @@ modelPredict <- function(para, Sample){
       for(chr in para$Chr){
         
         if(para$binByChr==T){
-          chrName=as.character("chr")
+          chrName=as.character(chr)
         }else{
           chrName="allChr"
         }
