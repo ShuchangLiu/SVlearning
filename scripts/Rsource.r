@@ -1439,7 +1439,7 @@ modelPredict <- function(para, Sample){
             tmp=piece2SV(piecePos=as.matrix(res[selectInd,c(2,3)]), 
                          pieceScore=cbind(matrix(x[selectInd,],nrow=length(selectInd),ncol=ncol(x)),
                                           matrix(y.predict[selectInd,1:modelNum],nrow=length(selectInd),ncol=modelNum)),
-                         gapDis=para$gapDis)
+                         gapDis=para$PgapDis)
             SVpos1=rbind(SVpos1,tmp$SVpos)
             SVscore1=c(SVscore1,tmp$SVscore)
             
@@ -1449,7 +1449,7 @@ modelPredict <- function(para, Sample){
         if(length(SVscore1)>0){
           if(para$SVgapDis>0){
             # merge the SVs within given sample, type, chr
-            tmp=mergeSV(inPos=SVpos1,iScore=SVscore1,SVgapDis=para$SVgapDis)
+            tmp=mergeSV(inPos=SVpos1,inScore=SVscore1,SVgapDis=para$SVgapDis)
             SVall=rbind(SVall, data.frame(chr=chr,startPos=tmp$outPos[,1],endPos=tmp$outPos[,2],type=type,info=tmp$outScore,stringsAsFactors=FALSE))
           }else{  # SVgapDis==0
             # don't merge SV from different bins
@@ -1638,11 +1638,11 @@ callerSVevaluation <- function(para,Sample){
         
         ## tool file
         if(tool=="breakdancer"){
-          toolDir=paste(para$tmp,"/",para$breakdancerDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
         }else if(tool=="CNVnator"){
-          toolDir=paste(para$tmp,"/",para$CNVnatorDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
         }else if(tool=="delly"){
-          toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
         }else if(tool=="SVlearning"){
           prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,"_ori.bed",sep="")
           if(!file.exists(prepBed)){
@@ -1777,11 +1777,11 @@ callerBPevaluation <- function(para,Sample){
         
         ## tool file
         if(tool=="breakdancer"){
-          toolDir=paste(para$tmp,"/",para$breakdancerDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
         }else if(tool=="CNVnator"){
-          toolDir=paste(para$tmp,"/",para$CNVnatorDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
         }else if(tool=="delly"){
-          toolDir=paste(para$tmp,"/",para$dellyDir,sep="")
+          toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
         }else if(tool=="SVlearning"){
           prepBed=paste(para$tmpDir,"/",para$SVlearningDir,"/",sample,"_",type,"_ori.bed",sep="")
           if(!file.exists(prepBed)){
