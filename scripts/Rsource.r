@@ -54,11 +54,10 @@ checkFormatPara <- function(configFileName){
   ### to test all the MLmethod
   #para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
   
-  # check scoreID
+  # check scoreID  ## @@@@@@ TBD: change here: combine same toolName
   scoreIDtmp=list()
   allToolName=c()
   for(i in 1:length(para$scoreID)){
-    scoreIDtmp[[i]]=list()
     tmp=unlist(strsplit(para$scoreID[i],split=":"))
     if(length(tmp)!=3){
       stop("Invalide paramter setting for scoreID")
@@ -66,17 +65,30 @@ checkFormatPara <- function(configFileName){
     if(!tmp[2]%in%c("6","8","10")){
       stop("scoreID only accept column 6, 8 and 10")
     }
-    scoreIDtmp[[i]][["toolName"]]=tmp[1]
-    scoreIDtmp[[i]][["col"]]=as.integer(tmp[2])
-    scoreIDtmp[[i]][["ID"]]=tmp[3]
     
-    if(tmp[1]%in%allToolName){
-      stop(paste("Duplicate toolName ",tmp[1]," in para$scoreID"))  # TBD: allow multiple scores for one tool
+    currentName=paste(tmp[1],tmp[3],sep="_")
+    if(currentName%in%allToolName){
+      # don't allow duplicate names
+      warning(paste("Duplicate toolName and score for ",currentName," in para$scoreID"))  
+      next
+    }
+    allToolName=c(allToolName,currentName)
+    
+    if(tmp[1]%in%names(scoreIDtmp)){
+      # tool name already exit
+      scoreIDtmp[[tmp[1]]]=rbind(scoreIDtmp[[tmp[1]]],data.frame(col=tmp[2],ID=tmp[3],stringsAsFactors=FALSE))
     }else{
-      allToolName=c(allToolName,tmp[1])
+      # new tool name
+      scoreIDtmp[[tmp[1]]]=data.frame(col=tmp[2],ID=tmp[3],stringsAsFactors=FALSE)
     }
   }
   para$scoreID=scoreIDtmp
+  allToolName=c()
+  for(i in 1:length(para$scoreID)){
+    allToolName=c(allToolName,paste(names(para$scoreID)[i],para$scoreID[[i]]$ID,sep="_"))
+  }
+  para$allToolName=allToolName
+  
   
   print(para)
   
@@ -638,7 +650,7 @@ prepare_general <- function(para,sampleDir,Sample, toolIndex){
   # Sample=para$trainSample
   # toolIndex=1
   
-  tool=para$scoreID[[toolIndex]][["toolName"]]
+  tool=names(para$scoreID)[[toolIndex]]
   toolDir=paste(para$tmpDir,"/",para$toolDirPre,"_",tool,sep="")
   
   for(sample in Sample){
@@ -693,28 +705,30 @@ prepare_general <- function(para,sampleDir,Sample, toolIndex){
       endPos=as.integer(SVend)
       
       # get score
-      if(para$scoreID[[toolIndex]][["col"]]==6){
-        ## QUAL column
-        score=as.numeric(invcf$QUAL)
-      }else if(para$scoreID[[toolIndex]][["col"]]==8){
-        ## INFO column
-        scoreTmp=sapply(tmpINFO,function(x) return(x[startsWith(x,paste(para$scoreID[[toolIndex]][["ID"]],"=",sep=""))]))
-        score=as.numeric(gsub(paste(para$scoreID[[toolIndex]][["ID"]],"=",sep=""),"",as.character(scoreTmp)))
-      }else if(para$scoreID[[toolIndex]][["col"]]==10){
-        ## FORMAT sample 
-        if(ncol(invcf)<10){
-          stop(paste("VCF file doesn't have col 10 available for sample=",sample," tool=",tool,sep=""))
+      score=matrix(0,nrow=nrow(invcf),ncol=nrow(para$scoreID[[toolIndex]]))
+      for(scoreIDind in 1:ncol(score)){
+        if(para$scoreID[[toolIndex]][scoreIDind,"col"]=="6"){
+          ## QUAL column
+          score[,scoreIDind]=as.numeric(invcf$QUAL)
+        }else if(para$scoreID[[toolIndex]][scoreIDind,"col"]=="8"){
+          ## INFO column
+          scoreTmp=sapply(tmpINFO,function(x) return(x[startsWith(x,paste(para$scoreID[[toolIndex]][scoreIDind,"ID"],"=",sep=""))]))
+          score[,scoreIDind]=as.numeric(gsub(paste(para$scoreID[[toolIndex]][scoreIDind,"ID"],"=",sep=""),"",as.character(scoreTmp)))
+        }else if(para$scoreID[[toolIndex]][scoreIDind,"col"]=="10"){
+          ## FORMAT sample 
+          if(ncol(invcf)<10){
+            stop(paste("VCF file doesn't have col 10 available for sample=",sample," tool=",tool,sep=""))
+          }
+          formatTmp=strsplit(invcf[,9],split=":")
+          itemIndex=sapply(formatTmp,function(x) return(which(x==para$scoreID[[toolIndex]][scoreIDind,"ID"])))
+          formatSampleTmp=strsplit(invcf[,10],split=":")
+          score[,scoreIDind]=as.numeric(unlist(sapply(1:length(formatSampleTmp),function(i) return(formatSampleTmp[[i]][itemIndex[i]]))))
+        }else{
+          stop("scoreID only accept column 6, 8 and 10")
         }
-        formatTmp=strsplit(invcf[,9],split=":")
-        itemIndex=sapply(formatTmp,function(x) return(which(x==para$scoreID[[toolIndex]][["ID"]])))
-        formatSampleTmp=strsplit(invcf[,10],split=":")
-        score=as.numeric(unlist(sapply(1:length(formatSampleTmp),function(i) return(formatSampleTmp[[i]][itemIndex[i]]))))
-      }else{
-        stop("scoreID only accept column 6, 8 and 10")
       }
-      
+      # modify all the NA values into 1
       score[is.na(score)]=1
-      
       
       # check GT & form data frame
       if(toupper(tool)=="DELLY" & para$filterDellyGenotype==TRUE){
@@ -813,14 +827,14 @@ prepare_general <- function(para,sampleDir,Sample, toolIndex){
 
 
 #### prepareData
-# to prepare the data for  @@@@@ TBD: change it to compile with prepare_general
+# to prepare the data for  
 prepareData <- function(para){
   
   system(paste("mkdir -p ",para$tmpDir,sep=""))
   system(paste("mkdir -p ",para$tmpDir,"/",para$trueDir,sep=""))
   
   for(toolIndex in 1:length(para$scoreID)){
-    system(paste("mkdir -p ",para$tmpDir,"/",para$toolDirPre,"_",para$scoreID[[toolIndex]][["toolName"]],sep=""))
+    system(paste("mkdir -p ",para$tmpDir,"/",para$toolDirPre,"_",names(para$scoreID)[[toolIndex]],sep=""))
   }
   
   ##### for training
@@ -837,7 +851,7 @@ prepareData <- function(para){
     
     # tool
     for(toolIndex in 1:length(para$scoreID)){
-      print(paste("[",Sys.time(),"] prepare ",para$scoreID[[toolIndex]][["toolName"]]," training data",sep=""))
+      print(paste("[",Sys.time(),"] prepare ",names(para$scoreID)[[toolIndex]]," training data",sep=""))
       prepare_general(para=para,sampleDir=sampleDir,Sample=Sample,toolIndex=toolIndex)
     }
     
@@ -913,7 +927,7 @@ SV2piece <- function(SVpos, SVscore){
             preRight=piecePos[nrow(piecePos),2]
           }
           if(posHP[minInd,1]!=preRight){   # check here later
-            currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean)  # use the mean score value, change later for other method
+            currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean,na.rm=T)  # use the mean score value, change later for other method
             pieceScore=rbind(pieceScore,currentPieceScore)
             currentPiecePos[2]=posHP[minInd,1]
             piecePos=rbind(piecePos,currentPiecePos)
@@ -924,7 +938,7 @@ SV2piece <- function(SVpos, SVscore){
         if(SVpos[i,1]>currentPiecePos[1]){
           currentPiecePos[2]=SVpos[i,1]-1
           piecePos=rbind(piecePos,currentPiecePos)
-          currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean) 
+          currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean,na.rm=T) 
           pieceScore=rbind(pieceScore,currentPieceScore)
           currentPiecePos=c(SVpos[i,1],0)
         }
@@ -941,7 +955,7 @@ SV2piece <- function(SVpos, SVscore){
         preRight=piecePos[nrow(piecePos),2]
       }
       if(posHP[minInd,1]!=preRight){   # check here later
-        currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean)  # use the mean score value, change later for other method
+        currentPieceScore=apply(matrix(SVscore[posHP[,2],],ncol=scoreNum),2,mean,na.rm=T)  # use the mean score value, change later for other method
         pieceScore=rbind(pieceScore,currentPieceScore)
         currentPiecePos[2]=posHP[minInd,1]
         piecePos=rbind(piecePos,currentPiecePos)
@@ -951,11 +965,9 @@ SV2piece <- function(SVpos, SVscore){
     }
     
     # for those gap region
-    naInd=which(is.na(pieceScore))
-    if(length(naInd)>0){
-      piecePos=matrix(piecePos[-naInd,],ncol=2)
-      pieceScore=matrix(pieceScore[-naInd,],ncol=ncol(SVscore))
-    }
+    naInd=apply(is.na(pieceScore),1,all)
+    piecePos=piecePos[!naInd,]
+    pieceScore=pieceScore[!naInd,]
     
     rownames(piecePos)=NULL
     rownames(pieceScore)=NULL
@@ -1072,18 +1084,23 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         
         ## read in and combine the data 
         SVposAll=matrix(0,nrow=0,ncol=3)
-        SVscoreAll=matrix(0,nrow=0,ncol=length(para$scoreID))
+        SVscoreAll=matrix(0,nrow=0,ncol=length(para$allToolName))
         
+        scoreIndex=0
         for(toolIndex in 1:length(para$scoreID)){
-          toolBEDtype=paste(para$tmpDir,"/",para$toolDirPre,"_",para$scoreID[[toolIndex]][["toolName"]],"/",sample,"_",type,".bed",sep="")
+          toolBEDtype=paste(para$tmpDir,"/",para$toolDirPre,"_",names(para$scoreID)[toolIndex],"/",sample,"_",type,".bed",sep="")
+          scoreNum=nrow(para$scoreID[[toolIndex]])
           if(file.info(toolBEDtype)$size!=0){
             res=read.table(toolBEDtype,sep="\t",header=F,as.is=T)
             SVposAll=rbind(SVposAll,res[,1:3])
-            tmp=matrix(0,nrow=nrow(res),ncol=length(para$scoreID))
-            tmp[,toolIndex]=as.numeric(res[,5])
+            tmp=matrix(NA,nrow=nrow(res),ncol=length(para$allToolName))  # default is NA
+            for(sIndex in 1:scoreNum){
+              tmp[,scoreIndex+sIndex]=as.numeric(res[,4+sIndex])
+            }
             # TBD add score modification: -log2 or some other operation
             SVscoreAll=rbind(SVscoreAll,tmp)
           }
+          scoreIndex=scoreIndex+scoreNum
         }
         
         # modify CNVnator to avaoid some extreme value
@@ -1091,7 +1108,6 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
         # ind2=res2[,5]==0
         # res2[ind1,5]=0
         # res2[ind2,5]=-1
-        
         
         SVlenAll=as.integer(SVposAll[,3]-SVposAll[,2])
         
@@ -1104,6 +1120,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
             selectInd=which(SVlenAll>=binLenAll[binlenInd] & SVlenAll<binLenAll[binlenInd+1] & SVposAll[,1]==chr)
             if(length(selectInd)>0){
               pieceOut=SV2piece(SVpos=as.matrix(SVposAll[selectInd,2:3]),SVscore=matrix(SVscoreAll[selectInd,],ncol=ncol(SVscoreAll)))
+              pieceOut$pieceScore[is.na(pieceOut$pieceScore)]=0  # set NA to be 0
               out=data.frame(chr,pieceOut$piecePos,type,pieceOut$pieceScore,stringsAsFactors=FALSE)
               out[,2]=as.integer(out[,2])
               out[,3]=as.integer(out[,3])
@@ -1124,7 +1141,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 
                 # correct the values for ML input
                 # modify y
-                yIndex=4+length(para$scoreID)+1
+                yIndex=4+length(para$allToolName)+1
                 out[out[,yIndex]>1,yIndex]=1  # change here is multiple scores for one caller
                 
                 # remove tmp files
@@ -1168,7 +1185,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 system(s)
                 
                 interFile=read.table(pieceFileMark,header=F,sep="\t",as.is=T) 
-                # chr, start, end, type, bd, CNVnator, delly, trueChr, trueStart, trueEnd, trueType, overlapBP
+                # chr, start, end, type, score matrix, trueChr, trueStart, trueEnd, trueType, overlapBP
                 interFile[,2]=as.integer(interFile[,2])
                 interFile[,3]=as.integer(interFile[,3])
                 
@@ -1178,15 +1195,15 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
                 pieceFullLen=sapply(interFileSplit,function(x) as.integer(x[1,3]-x[1,2]+1) )
                 selectedInd=which(overlapLen/pieceFullLen >= para$markPieceRate)
                 
-                outTmp=data.frame(t(sapply(interFileSplit,function(x) return(x[1,1:(4+length(para$scoreID))]))))
+                outTmp=data.frame(t(sapply(interFileSplit,function(x) return(x[1,1:(4+length(para$allToolName))]))))
                 out=data.frame(chr=chr,startPos=as.integer(outTmp[,2]),endPos=as.integer(outTmp[,3]),type=type)
-                for(toolIndex in 1:length(para$scoreID)){
-                  out=cbind(out,as.numeric(outTmp[,4+toolIndex]))
+                for(sIndex in 1:length(para$allToolName)){
+                  out=cbind(out,as.numeric(outTmp[,4+sIndex]))
                 }
                 colnames(out)=NULL
                 
                 out=cbind(out,0)
-                yInd=4+length(para$scoreID)+1
+                yInd=4+length(para$allToolName)+1
                 
                 if(length(selectedInd)>0){
                   out[selectedInd,yInd]=1
@@ -1231,16 +1248,14 @@ formatPieceSV <- function(para){
     print(paste("[",Sys.time(),"] Known model, skip breaking training data into pieces",sep=""))
   }else{
     print(paste("[",Sys.time(),"] Breaking training data into pieces",sep=""))
-    sampleDir=para$trainData
     Sample=para$trainSample
-    formatPieceSVsample(para=para,sampleDir=sampleDir,Sample=Sample)
+    formatPieceSVsample(para=para,Sample=Sample)
   }
   
   ##### for testing
   print(paste("[",Sys.time(),"] Breaking testing data into pieces",sep=""))
-  sampleDir=para$testData
   Sample=para$testSample
-  formatPieceSVsample(para=para,sampleDir=sampleDir,Sample=Sample)
+  formatPieceSVsample(para=para,Sample=Sample)
 }
 
 
@@ -1386,7 +1401,7 @@ trainModel <- function(para, Sample){
             pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
             if(file.info(pieceFile)$size!=0){
               res=read.table(pieceFile,header=F,sep="\t",as.is=T)
-              x=rbind(x,res[,5:(4+length(para$scoreID))])
+              x=rbind(x,res[,5:(4+length(para$allToolName))])
               y=c(y,res[,ncol(res)])
             }
           }
@@ -1407,7 +1422,7 @@ trainModel <- function(para, Sample){
             pieceFile=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",chr,"_xy.txt",sep="")
             if(file.info(pieceFile)$size!=0){
               res=read.table(pieceFile,header=F,sep="\t",as.is=T)
-              x=rbind(x,res[,5:(4+length(para$scoreID))])
+              x=rbind(x,res[,5:(4+length(para$allToolName))])
               y=c(y,res[,ncol(res)])
             }
           }
@@ -1547,7 +1562,7 @@ modelPredict <- function(para, Sample){
           
           res=read.table(pieceFileXY,header=F,sep="\t",as.is=T)
           
-          x=as.matrix(res[,5:(4+length(para$scoreID))])
+          x=as.matrix(res[,5:(4+length(para$allToolName))])
           colnames(x)=NULL
           y=as.numeric(res[,ncol(res)]) 
           
@@ -1691,11 +1706,7 @@ modelPredict <- function(para, Sample){
       INFO=paste("SVTYPE=",SVall$type,";SVLEN=",as.character(as.integer(SVall$endPos-SVall$startPos+1)),";END=",as.character(as.integer(SVall$endPos)),";IMPRECISE",sep="")
     }
     
-    toolNameString=c()
-    for(toolIndex in 1:length(para$scoreID)){
-      toolNameString=c(toolNameString,paste(para$scoreID[[toolIndex]][["toolName"]],para$scoreID[[toolIndex]][["ID"]],sep="_"))
-    }
-    toolNameString=paste(toolNameString,collapse=":")
+    toolNameString=paste(para$allToolName,collapse=":")
     
     # BED format
     if("BED"%in%para$outFormat){
@@ -1743,7 +1754,9 @@ modelPredict <- function(para, Sample){
       cat("##FORMAT=<ID=PEND,Number=1,Type=Integer,Description=\"End position of the combining pieces\">",file=outFile,sep="\n",append=TRUE)
       
       for(toolIndex in 1:length(para$scoreID)){
-        cat(paste("##FORMAT=<ID=",para$scoreID[[toolIndex]][["toolName"]],",Number=1,Type=Double,Description=\"",para$scoreID[[toolIndex]][["toolName"]]," ",para$scoreID[[toolIndex]][["ID"]],"\">",sep=""),file=outFile,sep="\n",append=TRUE)
+        for(sInd in 1:nrow(para$scoreID[[toolIndex]])){
+          cat(paste("##FORMAT=<ID=",names(para$scoreID)[[toolIndex]],",Number=1,Type=Double,Description=\"",names(para$scoreID)[[toolIndex]]," ",para$scoreID[[toolIndex]][sInd,"ID"],"\">",sep=""),file=outFile,sep="\n",append=TRUE)
+        }
       }
       
       for(methodName in para$MLmethod){
@@ -1814,12 +1827,6 @@ callerSVevaluation <- function(para,Sample){
   rownames(evaMat0)=Sample
   colnames(evaMat0)=colName
   
-  ## all tool name
-  allToolName=c()
-  for(toolIndex in 1:length(para$scoreID)){
-    allToolName=c(allToolName,para$scoreID[[toolIndex]][["toolName"]])
-  }
-  
   ## tool caller evaluation
   for(tool in para$evaCaller){
     print(paste("Evaluating ",tool,sep=""))
@@ -1878,7 +1885,7 @@ callerSVevaluation <- function(para,Sample){
           }
           toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
           
-        }else if(tool %in% allToolName){
+        }else if(tool %in% names(para$scoreID)){
           toolDir=paste(para$tmpDir,"/",para$toolDirPre,"_",tool,sep="")
         }else{
           stop(paste("Wrong tool name ",tool,sep=""))
@@ -1949,12 +1956,6 @@ callerBPevaluation <- function(para,Sample){
   
   system(paste("mkdir -p ",para$outDir,"/",para$evaDir,sep=""))
   
-  ## all tool name
-  allToolName=c()
-  for(toolIndex in 1:length(para$scoreID)){
-    allToolName=c(allToolName,para$scoreID[[toolIndex]][["toolName"]])
-  }
-  
   ## evaluation initialization
   colName=c("Predict","True","Overlap","Precision","Recall")
   evaMat0=matrix(0,nrow=length(Sample),ncol=length(colName))
@@ -2019,7 +2020,7 @@ callerBPevaluation <- function(para,Sample){
           }
           toolDir=paste(para$tmpDir,"/",para$SVlearningDir,sep="")
           
-        }else if(tool %in% allToolName){
+        }else if(tool %in% names(para$scoreID)){
           toolDir=paste(para$tmpDir,"/",para$toolDirPre,"_",tool,sep="")
         }else{
           stop(paste("Wrong tool name ",tool,sep=""))
