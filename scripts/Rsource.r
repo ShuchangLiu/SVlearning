@@ -11,7 +11,36 @@ checkFormatPara <- function(configFileName){
     para[[configFile[i,1]]]=unlist(strsplit(gsub(" ","",configFile[i,2]),split=","))
   }
   
-  # change format
+  # change format and check format
+  if(is.null(para$bedtools)){
+    stop("Parameter 'bedtools' is not available in the config file. Please provide the path for bedtools.")
+  }else if(!file.exists(para$bedtools)){
+    stop(paste("Parameter 'bedtools' file path ",para$bedtools, " does not exist."))
+  }
+  
+  if(is.null(para$modelDir)){
+    stop("Parameter 'modelDir' is not available in the config file. ")
+  }
+  if(is.null(para$knownModel)){
+    stop("Parameter 'bedtools' is not available in the config file. Please provide TRUE or FALSE.")
+  }else if(para$knownModel==T){
+    if(is.null(para$modelFile)){
+      stop("When parameter 'knownModel' is TRUE, user has to provide 'modelFile' in the config file.")
+    }
+  }else if(para$knownModel==F){
+    if(is.null(para$modelFile)){
+      warning(paste("No parameter 'modelFile' provided. The training model will be stored as model.rdata under folder ",para$modelDir,sep=""))
+    }
+    if(is.null(para$trainDataDir)){
+      stop("Parameter 'trainDataDir' has to be provided when 'knownModel' is FALSE.")
+    }
+    if(!file.exists(para$trainDataDir)){
+      stop(paste("Parameter 'trainDataDir' ",para$trainDataDir, " does not exist."))
+    }
+  }else{
+    stop("Parameter 'knownModel' has to be either TRUE or FALSE.")
+  }
+  
   para$Nrate=as.numeric(para$Nrate)
   para$vote=as.numeric(para$vote)
   para$DELbin=as.integer(para$DELbin)
@@ -35,8 +64,6 @@ checkFormatPara <- function(configFileName){
   para$trainSample=list.files(para$trainDataDir)
   ## testing sample, change here in case don't want to use the full testing samples
   para$testSample=list.files(para$testDataDir)
-  
-  ##### TBD: add code to check the parameter inputs, whether they satify the criteria
   
   # check para$MLmethod
   if(!(all(para$MLmethod%in%c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")))){
@@ -911,8 +938,8 @@ SV2piece <- function(SVpos, SVscore){
     
     ##### SV to piece
     # initialize
-    pieceScore=c()
-    piecePos=c()
+    pieceScore=matrix(0,nrow=0,ncol=scoreNum)
+    piecePos=matrix(0,nrow=0,ncol=2)
     currentPiecePos=c(SVpos[1,1],0)   # current piece position, c(left, right)
     posHP=matrix(c(SVpos[1,2],1),nrow=1,ncol=2) # col: right position, index
     
@@ -964,10 +991,14 @@ SV2piece <- function(SVpos, SVscore){
       posHP=matrix(posHP[-minInd,],ncol=2)
     }
     
+    # format into matrix form
+    piecePos=matrix(piecePos,ncol=2)
+    pieceScore=matrix(pieceScore,ncol=scoreNum)
+    
     # for those gap region
     naInd=apply(is.na(pieceScore),1,all)
-    piecePos=piecePos[!naInd,]
-    pieceScore=pieceScore[!naInd,]
+    piecePos=matrix(piecePos[!naInd,],ncol=2)
+    pieceScore=matrix(pieceScore[!naInd,],ncol=scoreNum)
     
     rownames(piecePos)=NULL
     rownames(pieceScore)=NULL
@@ -1915,10 +1946,12 @@ callerSVevaluation <- function(para,Sample){
         system(s)
         
         # read in mark file 1 to evaluate
-        res=read.table(markFile1,header=F,sep="\t",as.is=T)
-        evaMat[sample,"Predict"]=nrow(res)
-        evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
-        evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+        if(file.info(markFile1)$size!=0){
+          res=read.table(markFile1,header=F,sep="\t",as.is=T)
+          evaMat[sample,"Predict"]=nrow(res)
+          evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
+          evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+        }
         
         ## mark file 2: predict hit true
         markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
@@ -1928,11 +1961,13 @@ callerSVevaluation <- function(para,Sample){
         system(s)
         
         # read in the mark file 2 to evaluate
-        res=read.table(markFile2,header=F,sep="\t",as.is=T)
-        evaMat[sample,"True"]=nrow(res)
-        evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
-        evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
-        evaMat[is.na(evaMat)]=0 # in case 0 denominator
+        if(file.info(markFile2)$size!=0){
+          res=read.table(markFile2,header=F,sep="\t",as.is=T)
+          evaMat[sample,"True"]=nrow(res)
+          evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
+          evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
+          evaMat[is.na(evaMat)]=0 # in case 0 denominator
+        }
       } # end for(sample in Sample)
       
       # write evaMat to file
@@ -2038,7 +2073,7 @@ callerBPevaluation <- function(para,Sample){
         }
         
         if(file.info(trueFile)$size==0){
-          print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          print(paste("Empty true file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
           next
         }
         
@@ -2302,10 +2337,12 @@ callerSVevaluationVCF <- function(para,toolVCF,inputToolDir,toolName,trueVCF,inp
       system(s)
       
       # read in mark file 1 to evaluate
-      res=read.table(markFile1,header=F,sep="\t",as.is=T)
-      evaMat[sample,"Predict"]=nrow(res)
-      evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
-      evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+      if(file.info(markFile1)$size!=0){
+        res=read.table(markFile1,header=F,sep="\t",as.is=T)
+        evaMat[sample,"Predict"]=nrow(res)
+        evaMat[sample,"TrueHitPredict"]=sum(res[,ncol(res)]>0)
+        evaMat[sample,"Precision"]=evaMat[sample,"TrueHitPredict"]/evaMat[sample,"Predict"]
+      }
       
       ## mark file 2: predict hit true
       markFile2=paste(toolDir,"/",sample,"_",type,"_mark2.txt",sep="")
@@ -2315,11 +2352,13 @@ callerSVevaluationVCF <- function(para,toolVCF,inputToolDir,toolName,trueVCF,inp
       system(s)
       
       # read in the mark file 2 to evaluate
-      res=read.table(markFile2,header=F,sep="\t",as.is=T)
-      evaMat[sample,"True"]=nrow(res)
-      evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
-      evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
-      evaMat[is.na(evaMat)]=0 # in case 0 denominator
+      if(file.info(markFile1)$size!=0){
+        res=read.table(markFile2,header=F,sep="\t",as.is=T)
+        evaMat[sample,"True"]=nrow(res)
+        evaMat[sample,"PredictHitTrue"]=sum(res[,ncol(res)]>0)
+        evaMat[sample,"Recall"]=evaMat[sample,"PredictHitTrue"]/evaMat[sample,"True"]
+        evaMat[is.na(evaMat)]=0 # in case 0 denominator
+      }
     } # end for(sample in Sample)
     
     # write evaMat to file
