@@ -50,6 +50,7 @@ checkFormatPara <- function(configFileName){
   para$PgapDis=as.numeric(para$PgapDis)
   para$SVgapDis=as.numeric(para$SVgapDis)
   para$markPieceRate=as.numeric(para$markPieceRate)
+  para$maxTrainNum=as.numeric(para$maxTrainNum)
   
   
   # ref len file
@@ -177,6 +178,13 @@ prepare_true <- function(para,sampleDir,Sample){
       next
     }
     
+    # if empty input
+    s=paste("cat ",trueVCF," | sed '/^#/ d' | wc -l",sep="")
+    if(as.numeric(system(s,intern = T))==0){
+      print(paste("Empty true VCF file for sample ",sample,sep=""))
+      next
+    }
+    
     ### vcf to bed, with filtering
     
     # read in vcf file
@@ -233,439 +241,439 @@ prepare_true <- function(para,sampleDir,Sample){
 }
 
 
-#### prepare_breakdancer
-# to prepare breakdancer data: filtering, split by SV length bin and SV type
-prepare_breakdancer <- function(para,sampleDir,Sample){
-  
-  ## for test, parameter
-  #sampleDir=para$trainDataDir
-  #Sample=para$trainSample
-  
-  tool="breakdancer"
-  toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
-  #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
-  
-  for(sample in Sample){
-    print(sample)
-    
-    toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
-    if(length(toolVCFtmp)==0){
-      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
-    }else if(length(toolVCFtmp)>1){
-      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
-    }
-    toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
-    toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
-    toolBEDpre=paste(toolDir,"/",sample,sep="")
-    
-    # if the file has been processed, no need to processed again
-    if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
-      
-      # read in vcf file
-      invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
-      colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
-      
-      tmp=strsplit(invcf$INFO,split=";")
-      
-      # SVtype
-      SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
-      SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
-      
-      # END
-      SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-      SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
-      
-      # SVlen
-      SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
-      SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
-      
-      startPos=as.integer(invcf$POS)
-      
-      # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
-      # this has the potential that POS+abs(SVLEN) exceeding chromosome length
-      # endPos=rep(0,times=nrow(invcf))
-      # for(i in 1:nrow(invcf)){
-      #   if(is.na(SVlen[i])){
-      #     endPos[i]=SVend[i]
-      #   }else{
-      #     endPos[i]=startPos[i]+abs(SVlen[i])-1
-      #   }
-      # }
-      # endPos=as.integer(endPos)
-      
-      # use SV END directly, not using SVLEN
-      endPos=as.integer(SVend)
-      
-      df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=invcf$QUAL,stringsAsFactors=FALSE)
-      df$startPos=as.integer(df$startPos)
-      df$endPos=as.integer(df$endPos)
-      
-      ## check endPos>startPos
-      switchInd=which(df$endPos<df$startPos)
-      tmp=df$startPos[switchInd]
-      df$startPos[switchInd]=df$endPos[switchInd]
-      df$endPos[switchInd]=tmp
-      
-      # filter the data by chr
-      keepInd=which(as.character(df$chr)%in%para$Chr)
-      df=df[keepInd,]
-      
-      # filter the data by type
-      keepInd=which(df$name%in%para$Type)
-      df=df[keepInd,]
-      
-      # filter the data with start=end
-      keepInd=which(df$startPos < df$endPos)
-      df=df[keepInd,]
-      
-      # filter the data when end exceeding chromsome size or start smaller than 0
-      tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
-        df=df[-correctInd,]
-        tmpChrSize=tmpChrSize[-correctInd]
-      }
-      correctInd=which(df$endPos>tmpChrSize)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
-        df[correctInd,"endPos"]=tmpChrSize[correctInd]
-      }
-      
-      # write the original bed 
-      for(type in para$Type){
-        dfTmp=df[df$name==type,]
-        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
-        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
-      }
-      
-      # filter the N region
-      if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
-        Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
-        if(length(Ncount)!=nrow(df)){
-          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=breakdancer",sep=""))
-        }
-        Npercent=Ncount/(df$endPos-df$startPos+1)
-        keepInd=which(Npercent<para$Nrate)
-        df=df[keepInd,]
-      }
-      
-      # split the data by type
-      for(type in para$Type){
-        
-        toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
-        
-        dfSub=df[df$name==type,]
-        write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
-        
-        # intersect with truth
-        #s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        #system(s)
-      }
-    }else{
-      print(paste("Sample has been processed, skip",sep=""))
-    }
-  }  # end for(sample in Sample)
-} # end prepare_breakdancer function
+# #### prepare_breakdancer
+# # to prepare breakdancer data: filtering, split by SV length bin and SV type
+# prepare_breakdancer <- function(para,sampleDir,Sample){
+#   
+#   ## for test, parameter
+#   #sampleDir=para$trainDataDir
+#   #Sample=para$trainSample
+#   
+#   tool="breakdancer"
+#   toolDir=paste(para$tmpDir,"/",para$breakdancerDir,sep="")
+#   #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+#   
+#   for(sample in Sample){
+#     print(sample)
+#     
+#     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+#     if(length(toolVCFtmp)==0){
+#       stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+#     }else if(length(toolVCFtmp)>1){
+#       stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+#     }
+#     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
+#     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
+#     toolBEDpre=paste(toolDir,"/",sample,sep="")
+#     
+#     # if the file has been processed, no need to processed again
+#     if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
+#       
+#       # read in vcf file
+#       invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
+#       colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#       
+#       tmp=strsplit(invcf$INFO,split=";")
+#       
+#       # SVtype
+#       SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
+#       SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
+#       
+#       # END
+#       SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+#       SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+#       
+#       # SVlen
+#       SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
+#       SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
+#       
+#       startPos=as.integer(invcf$POS)
+#       
+#       # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
+#       # this has the potential that POS+abs(SVLEN) exceeding chromosome length
+#       # endPos=rep(0,times=nrow(invcf))
+#       # for(i in 1:nrow(invcf)){
+#       #   if(is.na(SVlen[i])){
+#       #     endPos[i]=SVend[i]
+#       #   }else{
+#       #     endPos[i]=startPos[i]+abs(SVlen[i])-1
+#       #   }
+#       # }
+#       # endPos=as.integer(endPos)
+#       
+#       # use SV END directly, not using SVLEN
+#       endPos=as.integer(SVend)
+#       
+#       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=invcf$QUAL,stringsAsFactors=FALSE)
+#       df$startPos=as.integer(df$startPos)
+#       df$endPos=as.integer(df$endPos)
+#       
+#       ## check endPos>startPos
+#       switchInd=which(df$endPos<df$startPos)
+#       tmp=df$startPos[switchInd]
+#       df$startPos[switchInd]=df$endPos[switchInd]
+#       df$endPos[switchInd]=tmp
+#       
+#       # filter the data by chr
+#       keepInd=which(as.character(df$chr)%in%para$Chr)
+#       df=df[keepInd,]
+#       
+#       # filter the data by type
+#       keepInd=which(df$name%in%para$Type)
+#       df=df[keepInd,]
+#       
+#       # filter the data with start=end
+#       keepInd=which(df$startPos < df$endPos)
+#       df=df[keepInd,]
+#       
+#       # filter the data when end exceeding chromsome size or start smaller than 0
+#       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+#       correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
+#         df=df[-correctInd,]
+#         tmpChrSize=tmpChrSize[-correctInd]
+#       }
+#       correctInd=which(df$endPos>tmpChrSize)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd)," of the ",tool," SVs in sample ", sample," have end position larger than chromosome size, modify them",sep=""))
+#         df[correctInd,"endPos"]=tmpChrSize[correctInd]
+#       }
+#       
+#       # write the original bed 
+#       for(type in para$Type){
+#         dfTmp=df[df$name==type,]
+#         fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+#         write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+#       }
+#       
+#       # filter the N region
+#       if(para$filterNregion==TRUE){
+#         write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+#         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+#         if(length(Ncount)!=nrow(df)){
+#           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=breakdancer",sep=""))
+#         }
+#         Npercent=Ncount/(df$endPos-df$startPos+1)
+#         keepInd=which(Npercent<para$Nrate)
+#         df=df[keepInd,]
+#       }
+#       
+#       # split the data by type
+#       for(type in para$Type){
+#         
+#         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
+#         #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+#         #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+#         
+#         dfSub=df[df$name==type,]
+#         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
+#         
+#         # intersect with truth
+#         #s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+#         #system(s)
+#       }
+#     }else{
+#       print(paste("Sample has been processed, skip",sep=""))
+#     }
+#   }  # end for(sample in Sample)
+# } # end prepare_breakdancer function
 
 
 
-#### prepare_CNVnator
-# to prepare CNVnator data: filtering, split by SV length bin and SV type
-prepare_CNVnator <- function(para,sampleDir,Sample){
-  
-  ## for test, parameter
-  #sampleDir=para$trainDataDir
-  #Sample=para$trainSample
-  
-  tool="CNVnator"
-  toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
-  #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
-  
-  for(sample in Sample){
-    print(sample)
-    
-    toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
-    if(length(toolVCFtmp)==0){
-      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
-    }else if(length(toolVCFtmp)>1){
-      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
-    }
-    toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
-    toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
-    toolBEDpre=paste(toolDir,"/",sample,sep="")
-    
-    # if the file has been processed, no need to processed again
-    if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
-      
-      # read in vcf file
-      invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
-      colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
-      
-      tmp=strsplit(invcf$INFO,split=";")
-      
-      # SVtype
-      SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
-      SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
-      
-      # END
-      SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-      SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
-      
-      # SVlen
-      SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
-      SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
-      
-      # score: natorP2
-      scoreTmp=sapply(tmp,function(x) return(x[startsWith(x,"natorP2=")]))
-      score=as.numeric(gsub("natorP2=","",as.character(scoreTmp)))
-      
-      startPos=as.integer(invcf$POS)
-      
-      # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
-      # this has the potential that POS+abs(SVLEN) exceeding chromosome length
-      # endPos=rep(0,times=nrow(invcf))
-      # for(i in 1:nrow(invcf)){
-      #   if(is.na(SVlen[i])){
-      #     endPos[i]=SVend[i]
-      #   }else{
-      #     endPos[i]=startPos[i]+abs(SVlen[i])-1
-      #   }
-      # }
-      # endPos=as.integer(endPos)
-      
-      # use SV END directly, not using SVLEN
-      endPos=as.integer(SVend)
-      
-      df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=score,stringsAsFactors=FALSE)
-      df$startPos=as.integer(df$startPos)
-      df$endPos=as.integer(df$endPos)
-      
-      ## check endPos>startPos
-      switchInd=which(df$endPos<df$startPos)
-      tmp=df$startPos[switchInd]
-      df$startPos[switchInd]=df$endPos[switchInd]
-      df$endPos[switchInd]=tmp
-      
-      # filter the data by chr
-      keepInd=which(as.character(df$chr)%in%para$Chr)
-      df=df[keepInd,]
-      
-      # filter the data by type
-      keepInd=which(df$name%in%para$Type)
-      df=df[keepInd,]
-      
-      # filter the data with start=end
-      keepInd=which(df$startPos < df$endPos)
-      df=df[keepInd,]
-      
-      # filter the data when end exceeding chromsome size or start smaller than 0
-      tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
-        df=df[-correctInd,]
-        tmpChrSize=tmpChrSize[-correctInd]
-      }
-      correctInd=which(df$endPos>tmpChrSize)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
-        df[correctInd,"endPos"]=tmpChrSize[correctInd]
-      }
-      
-      # write the original bed 
-      for(type in para$Type){
-        dfTmp=df[df$name==type,]
-        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
-        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
-      }
-      
-      # filter the N region
-      if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
-        Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
-        if(length(Ncount)!=nrow(df)){
-          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=CNVnator",sep=""))
-        }
-        Npercent=Ncount/(df$endPos-df$startPos+1)
-        keepInd=which(Npercent<para$Nrate)
-        df=df[keepInd,]
-      }
-      
-      # split the data by type
-      for(type in para$Type){
-        
-        toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
-        
-        dfSub=df[df$name==type,] # still working when it's empty
-        write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
-        
-        # intersect with truth
-        # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        # system(s)
-      }
-    }else{
-      print(paste("Sample has been prepared, skip",sep=""))
-    }
-  }  # end for(sample in Sample)
-} # end prepare_CNVnator function
+# #### prepare_CNVnator
+# # to prepare CNVnator data: filtering, split by SV length bin and SV type
+# prepare_CNVnator <- function(para,sampleDir,Sample){
+#   
+#   ## for test, parameter
+#   #sampleDir=para$trainDataDir
+#   #Sample=para$trainSample
+#   
+#   tool="CNVnator"
+#   toolDir=paste(para$tmpDir,"/",para$CNVnatorDir,sep="")
+#   #trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+#   
+#   for(sample in Sample){
+#     print(sample)
+#     
+#     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+#     if(length(toolVCFtmp)==0){
+#       stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+#     }else if(length(toolVCFtmp)>1){
+#       stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+#     }
+#     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
+#     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
+#     toolBEDpre=paste(toolDir,"/",sample,sep="")
+#     
+#     # if the file has been processed, no need to processed again
+#     if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
+#       
+#       # read in vcf file
+#       invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
+#       colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#       
+#       tmp=strsplit(invcf$INFO,split=";")
+#       
+#       # SVtype
+#       SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
+#       SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
+#       
+#       # END
+#       SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+#       SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+#       
+#       # SVlen
+#       SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
+#       SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
+#       
+#       # score: natorP2
+#       scoreTmp=sapply(tmp,function(x) return(x[startsWith(x,"natorP2=")]))
+#       score=as.numeric(gsub("natorP2=","",as.character(scoreTmp)))
+#       
+#       startPos=as.integer(invcf$POS)
+#       
+#       # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
+#       # this has the potential that POS+abs(SVLEN) exceeding chromosome length
+#       # endPos=rep(0,times=nrow(invcf))
+#       # for(i in 1:nrow(invcf)){
+#       #   if(is.na(SVlen[i])){
+#       #     endPos[i]=SVend[i]
+#       #   }else{
+#       #     endPos[i]=startPos[i]+abs(SVlen[i])-1
+#       #   }
+#       # }
+#       # endPos=as.integer(endPos)
+#       
+#       # use SV END directly, not using SVLEN
+#       endPos=as.integer(SVend)
+#       
+#       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=score,stringsAsFactors=FALSE)
+#       df$startPos=as.integer(df$startPos)
+#       df$endPos=as.integer(df$endPos)
+#       
+#       ## check endPos>startPos
+#       switchInd=which(df$endPos<df$startPos)
+#       tmp=df$startPos[switchInd]
+#       df$startPos[switchInd]=df$endPos[switchInd]
+#       df$endPos[switchInd]=tmp
+#       
+#       # filter the data by chr
+#       keepInd=which(as.character(df$chr)%in%para$Chr)
+#       df=df[keepInd,]
+#       
+#       # filter the data by type
+#       keepInd=which(df$name%in%para$Type)
+#       df=df[keepInd,]
+#       
+#       # filter the data with start=end
+#       keepInd=which(df$startPos < df$endPos)
+#       df=df[keepInd,]
+#       
+#       # filter the data when end exceeding chromsome size or start smaller than 0
+#       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+#       correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
+#         df=df[-correctInd,]
+#         tmpChrSize=tmpChrSize[-correctInd]
+#       }
+#       correctInd=which(df$endPos>tmpChrSize)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
+#         df[correctInd,"endPos"]=tmpChrSize[correctInd]
+#       }
+#       
+#       # write the original bed 
+#       for(type in para$Type){
+#         dfTmp=df[df$name==type,]
+#         fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+#         write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+#       }
+#       
+#       # filter the N region
+#       if(para$filterNregion==TRUE){
+#         write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+#         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+#         if(length(Ncount)!=nrow(df)){
+#           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=CNVnator",sep=""))
+#         }
+#         Npercent=Ncount/(df$endPos-df$startPos+1)
+#         keepInd=which(Npercent<para$Nrate)
+#         df=df[keepInd,]
+#       }
+#       
+#       # split the data by type
+#       for(type in para$Type){
+#         
+#         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
+#         #trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+#         #toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+#         
+#         dfSub=df[df$name==type,] # still working when it's empty
+#         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
+#         
+#         # intersect with truth
+#         # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+#         # system(s)
+#       }
+#     }else{
+#       print(paste("Sample has been prepared, skip",sep=""))
+#     }
+#   }  # end for(sample in Sample)
+# } # end prepare_CNVnator function
 
 
-#### prepare_delly
-# to prepare delly data: filtering, split by SV length bin and SV type
-prepare_delly <- function(para,sampleDir,Sample){
-  
-  ## for test, parameter
-  #sampleDir=para$trainDataDir
-  #Sample=para$trainSample
-  
-  tool="delly"
-  toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
-  # trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
-  
-  for(sample in Sample){
-    print(sample)
-    
-    toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
-    if(length(toolVCFtmp)==0){
-      stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
-    }else if(length(toolVCFtmp)>1){
-      stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
-    }
-    toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
-    toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
-    toolBEDpre=paste(toolDir,"/",sample,sep="")
-    
-    # if the file has been processed, no need to processed again
-    if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
-      
-      # read in vcf file
-      invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
-      colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
-      
-      tmp=strsplit(invcf$INFO,split=";")
-      
-      # SVtype
-      SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
-      SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
-      
-      # END
-      SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
-      SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
-      
-      # SVlen
-      #SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
-      #SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
-      
-      # score: GQ
-      tmpValue=strsplit(invcf[,10],split=":")
-      GQ=as.numeric(sapply(tmpValue,function(x) return(x[3])))
-      
-      # genotype: GT
-      GT=sapply(tmpValue,function(x) return(x[1]))
-      
-      startPos=as.integer(invcf$POS)
-      
-      # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
-      # this has the potential that POS+abs(SVLEN) exceeding chromosome length
-      # endPos=rep(0,times=nrow(invcf))
-      # for(i in 1:nrow(invcf)){
-      #   if(is.na(SVlen[i])){
-      #     endPos[i]=SVend[i]
-      #   }else{
-      #     endPos[i]=startPos[i]+abs(SVlen[i])-1
-      #   }
-      # }
-      # endPos=as.integer(endPos)
-      
-      # use SV END directly, not using SVLEN
-      endPos=as.integer(SVend)
-      
-      df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=GQ, GT=GT,stringsAsFactors=FALSE)
-      df$startPos=as.integer(df$startPos)
-      df$endPos=as.integer(df$endPos)
-      
-      ## check endPos>startPos
-      switchInd=which(df$endPos<df$startPos)
-      tmp=df$startPos[switchInd]
-      df$startPos[switchInd]=df$endPos[switchInd]
-      df$endPos[switchInd]=tmp
-      
-      # filter the data by chr
-      keepInd=which(as.character(df$chr)%in%para$Chr)
-      df=df[keepInd,]
-      
-      # filter the data by type
-      keepInd=which(df$name%in%para$Type)
-      df=df[keepInd,]
-      
-      # filter the data with start=end
-      keepInd=which(df$startPos < df$endPos)
-      df=df[keepInd,]
-      
-      # filter the data when end exceeding chromsome size or start smaller than 0
-      tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
-      correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
-        df=df[-correctInd,]
-        tmpChrSize=tmpChrSize[-correctInd]
-      }
-      correctInd=which(df$endPos>tmpChrSize)
-      if(length(correctInd)>0){
-        warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
-        df[correctInd,"endPos"]=tmpChrSize[correctInd]
-      }
-      
-      # write the original bed 
-      for(type in para$Type){
-        dfTmp=df[df$name==type,]
-        fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
-        write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
-      }
-      
-      ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
-      if(para$filterDellyGenotype==TRUE){
-        keepInd=which(df$GT%in%para$keepGenotype)
-        df=df[keepInd,]
-      }
-      
-      # filter the N region
-      if(para$filterNregion==TRUE){
-        write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
-        Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
-        if(length(Ncount)!=nrow(df)){
-          stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=delly",sep=""))
-        }
-        Npercent=Ncount/(df$endPos-df$startPos+1)
-        keepInd=which(Npercent<para$Nrate)
-        df=df[keepInd,]
-      }
-      
-      # split the data by type
-      for(type in para$Type){
-        
-        toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
-        # trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
-        # toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
-        
-        dfSub=df[df$name==type,]
-        write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
-        
-        # intersect with truth
-        # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
-        # system(s)
-      }
-    }else{
-      print(paste("Sample has been prepared, skip",sep=""))
-    }
-  }  # end for(sample in Sample)
-} # end prepare_delly function
+# #### prepare_delly
+# # to prepare delly data: filtering, split by SV length bin and SV type
+# prepare_delly <- function(para,sampleDir,Sample){
+#   
+#   ## for test, parameter
+#   #sampleDir=para$trainDataDir
+#   #Sample=para$trainSample
+#   
+#   tool="delly"
+#   toolDir=paste(para$tmpDir,"/",para$dellyDir,sep="")
+#   # trueDir=paste(para$tmpDir,"/",para$trueDir,sep="")
+#   
+#   for(sample in Sample){
+#     print(sample)
+#     
+#     toolVCFtmp=list.files(path=paste(sampleDir,"/",sample,sep=""),pattern=paste(tool,".vcf",sep=""))
+#     if(length(toolVCFtmp)==0){
+#       stop(paste("No VCF file available for tool=",tool,", sample=",sample,sep=""))
+#     }else if(length(toolVCFtmp)>1){
+#       stop(paste("Multiple VCF files available for tool=",tool,", sample=",sample,sep=""))
+#     }
+#     toolVCF=paste(sampleDir,"/",sample,"/",toolVCFtmp,sep="")
+#     toolBED1=paste(toolDir,"/",sample,".1.bed",sep="")
+#     toolBEDpre=paste(toolDir,"/",sample,sep="")
+#     
+#     # if the file has been processed, no need to processed again
+#     if(!file.exists(paste(toolBEDpre,"_",para$Type[1],".bed",sep=""))){
+#       
+#       # read in vcf file
+#       invcf=read.table(toolVCF,sep="\t",as.is=T,comment.char="#",header=F)
+#       colnames(invcf)[1:8]=c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#       
+#       tmp=strsplit(invcf$INFO,split=";")
+#       
+#       # SVtype
+#       SVTYPEtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVTYPE=")]))
+#       SVtype=gsub("SVTYPE=","",as.character(SVTYPEtmp))
+#       
+#       # END
+#       SVENDtmp=sapply(tmp,function(x) return(x[startsWith(x,"END=")]))
+#       SVend=as.numeric(gsub("END=","",as.character(SVENDtmp)))
+#       
+#       # SVlen
+#       #SVLENtmp=sapply(tmp,function(x) return(x[startsWith(x,"SVLEN=")]))
+#       #SVlen=as.numeric(gsub("SVLEN=","",as.character(SVLENtmp)))
+#       
+#       # score: GQ
+#       tmpValue=strsplit(invcf[,10],split=":")
+#       GQ=as.numeric(sapply(tmpValue,function(x) return(x[3])))
+#       
+#       # genotype: GT
+#       GT=sapply(tmpValue,function(x) return(x[1]))
+#       
+#       startPos=as.integer(invcf$POS)
+#       
+#       # # if SVlen is NA, use END as endPos; otherwise use SVlen to calculate
+#       # this has the potential that POS+abs(SVLEN) exceeding chromosome length
+#       # endPos=rep(0,times=nrow(invcf))
+#       # for(i in 1:nrow(invcf)){
+#       #   if(is.na(SVlen[i])){
+#       #     endPos[i]=SVend[i]
+#       #   }else{
+#       #     endPos[i]=startPos[i]+abs(SVlen[i])-1
+#       #   }
+#       # }
+#       # endPos=as.integer(endPos)
+#       
+#       # use SV END directly, not using SVLEN
+#       endPos=as.integer(SVend)
+#       
+#       df=data.frame(chr=invcf$CHROM,startPos=startPos,endPos=endPos,name=SVtype,score=GQ, GT=GT,stringsAsFactors=FALSE)
+#       df$startPos=as.integer(df$startPos)
+#       df$endPos=as.integer(df$endPos)
+#       
+#       ## check endPos>startPos
+#       switchInd=which(df$endPos<df$startPos)
+#       tmp=df$startPos[switchInd]
+#       df$startPos[switchInd]=df$endPos[switchInd]
+#       df$endPos[switchInd]=tmp
+#       
+#       # filter the data by chr
+#       keepInd=which(as.character(df$chr)%in%para$Chr)
+#       df=df[keepInd,]
+#       
+#       # filter the data by type
+#       keepInd=which(df$name%in%para$Type)
+#       df=df[keepInd,]
+#       
+#       # filter the data with start=end
+#       keepInd=which(df$startPos < df$endPos)
+#       df=df[keepInd,]
+#       
+#       # filter the data when end exceeding chromsome size or start smaller than 0
+#       tmpChrSize=as.numeric(para$refLen[as.character(df$chr)])
+#       correctInd=which(df$startPos>tmpChrSize | df$startPos<=0)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd), " of the ",tool," SVs in sample ",sample," have start position larger than chromosome size OR smaller than 0, remove these SVs",sep=""))
+#         df=df[-correctInd,]
+#         tmpChrSize=tmpChrSize[-correctInd]
+#       }
+#       correctInd=which(df$endPos>tmpChrSize)
+#       if(length(correctInd)>0){
+#         warning(paste(length(correctInd)," of the ",tool," SVs in sample ",sample," have end position larger than chromosome size, modify them",sep=""))
+#         df[correctInd,"endPos"]=tmpChrSize[correctInd]
+#       }
+#       
+#       # write the original bed 
+#       for(type in para$Type){
+#         dfTmp=df[df$name==type,]
+#         fileTmp=paste(toolBEDpre,"_",type,"_ori.bed",sep="")
+#         write.table(dfTmp,file=fileTmp,sep="\t",col.names=F,row.names=F,quote=F)
+#       }
+#       
+#       ## filter GT, only keep 0/1 or 1/1, remove 0/0 or ./.
+#       if(para$filterDellyGenotype==TRUE){
+#         keepInd=which(df$GT%in%para$keepGenotype)
+#         df=df[keepInd,]
+#       }
+#       
+#       # filter the N region
+#       if(para$filterNregion==TRUE){
+#         write.table(data.frame(df[,1],as.integer(df[,2]-1),as.integer(df[,3])),file=toolBED1,sep="\t",col.names=F, row.names=F, quote=F)
+#         Ncount=as.numeric(system(paste(para$bedtools," getfasta -tab -fi ",para$reference," -bed ",toolBED1," | awk -F \"\\t\" '{print $2}' | awk -F \"N|n\" '{print NF-1}'",sep=""),intern=T))
+#         if(length(Ncount)!=nrow(df)){
+#           stop(paste("File ",toolBED1, " is wrong input for getfasta tool for sample=",sample," tool=delly",sep=""))
+#         }
+#         Npercent=Ncount/(df$endPos-df$startPos+1)
+#         keepInd=which(Npercent<para$Nrate)
+#         df=df[keepInd,]
+#       }
+#       
+#       # split the data by type
+#       for(type in para$Type){
+#         
+#         toolBEDtype=paste(toolBEDpre,"_",type,".bed",sep="")
+#         # trueBEDtype=paste(trueDir,"/",sample,"_",type,".bed",sep="")
+#         # toolTrueMarktype=paste(toolDir,"/",sample,"_",type,"_mark.txt",sep="")
+#         
+#         dfSub=df[df$name==type,]
+#         write.table(dfSub, file=toolBEDtype,sep="\t",col.names=F, row.names=F, quote=F)
+#         
+#         # intersect with truth
+#         # s=paste(para$bedtools," intersect -a ", toolBEDtype, " -b ",trueBEDtype," -f 0.5 -r -c > ",toolTrueMarktype,sep="")
+#         # system(s)
+#       }
+#     }else{
+#       print(paste("Sample has been prepared, skip",sep=""))
+#     }
+#   }  # end for(sample in Sample)
+# } # end prepare_delly function
 
 
 #### prepare_general
@@ -1340,6 +1348,13 @@ applyTrain <- function(para,x,y,type,binlen,chr){
   y=y[c(y0Ind,y1Ind)]
   colnames(x)=NULL
   x=as.matrix(x)
+  
+  # subsample the training data to avoid computing time
+  if(length(y)>para$maxTrainNum){
+    selectInd=sample(1:length(y),size=para$maxTrainNum)
+    y=y[selectInd]
+    x=x[selectInd,]
+  }
   
   ## to avoid constant features
   ## TBD: check this part later, either assign some random values OR remove the constant features
