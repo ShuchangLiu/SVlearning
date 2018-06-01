@@ -38,7 +38,7 @@ formatPieceSV(para)
 set.seed(06032)
 totalSample=para$trainSample
 for(i in 1:length(totalSample)){
-  print(paste("[",Sys.time(),"] CV=1",i,", testing sample=",totalSample[i],sep=""))
+  print(paste("[",Sys.time(),"] CV=",i,", testing sample=",totalSample[i],sep=""))
   
   ## train the model
   para$modelFile=paste("model",i,".rdata",sep="")
@@ -53,11 +53,6 @@ for(i in 1:length(totalSample)){
 if(para$reportTestEvaluation==TRUE){
   callerSVevaluation(para,Sample=para$testSample)
   callerBPevaluation(para,Sample=para$testSample)
-}
-
-## remove tmp file
-if(para$rmTmpFile==TRUE){
-  system(paste("rm -rf ",para$tmpDir,sep=""))
 }
 
 

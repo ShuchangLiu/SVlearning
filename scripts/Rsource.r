@@ -75,9 +75,9 @@ checkFormatPara <- function(configFileName){
   }
   
   # check para$Type
-  if(!all(para$Typ %in% c("DEL","DUP"))){
-    stop("Error: In config file, Type can only choose from DEL and DUP")
-  }
+  #if(!all(para$Typ %in% c("DEL","DUP"))){
+  #  stop("Error: In config file, Type can only choose from DEL and DUP")
+  #}
   
   ### to test all the MLmethod
   #para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
@@ -1105,6 +1105,8 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
       binLen=para$DELbin
     }else if(type=="DUP"){
       binLen=para$DUPbin
+    }else if(type=="INV"){
+      binLen=para$INVbin
     }else{
       stop(paste("Type ",type," is not supported yet!"))
     }
@@ -1305,11 +1307,6 @@ applyTrain <- function(para,x,y,type,binlen,chr){
   # y - training y, vector with length to be number of pieces
   # output: outModel - return the model list
   
-  ## check input format
-  if(nrow(x)!=length(y)){
-    stop(paste("nrow(x) != length(y)",sep=""))
-  }
-  
   ## model initialization
   outModel=list()
   for(modelName in para$MLmethod){
@@ -1331,6 +1328,11 @@ applyTrain <- function(para,x,y,type,binlen,chr){
   }else if(sum(y==1)==1){ # # otherwise 'sample' function will get error
     print(paste("Not enough number of y=1 cases for type=", type,", binlen=",as.character(as.integer(binlen)),", chr=",chr,sep=""))
     return(outModel)
+  }
+  
+  ## check input format
+  if(nrow(x)!=length(y)){
+    stop(paste("nrow(x) != length(y)",sep=""))
   }
   
   # balance y=0 and y=1 to make num(y=1)/num(y=0) = para$pieceBalanceRate
@@ -1426,6 +1428,8 @@ trainModel <- function(para, Sample){
       binLen=para$DELbin
     }else if(type=="DUP"){
       binLen=para$DUPbin
+    }else if(type=="INV"){
+      binLen=para$INVbin
     }else{
       stop(paste("Type ",type," not supporting yet!"))
     }
@@ -1578,6 +1582,8 @@ modelPredict <- function(para, Sample){
         binLen=para$DELbin
       }else if(type=="DUP"){
         binLen=para$DUPbin
+      }else if(type=="INV"){
+        binLen=para$INVbin
       }else{
         stop(paste("Type ",type," not supporting yet!"))
       }
@@ -2087,6 +2093,11 @@ callerBPevaluation <- function(para,Sample){
           next
         }
         
+        if(file.info(toolFile)$size==0){
+          print(paste("Empty tool file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+          next
+        }
+        
         if(file.info(trueFile)$size==0){
           print(paste("Empty true file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
           next
@@ -2339,7 +2350,7 @@ callerSVevaluationVCF <- function(para,toolVCF,inputToolDir,toolName,trueVCF,inp
       }
       
       if(file.info(trueFile)$size==0){
-        print(paste("Empty tool ",toolName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
+        print(paste("Empty true ",toolName," file for sample=",sample,", type=",type,", skip evaluation.",sep=""))
         next
       }
       
