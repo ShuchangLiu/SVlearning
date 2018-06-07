@@ -1,0 +1,2 @@
+Reference length file is a tab separated file with first col to be chromosome name and the second col to be the length. This file should be exactly matching the reference.fa file. The chromosome name (either 'chr1' or '1') should matching with FA file, and the 'Chr' argument in the configuration file.
+Here we provided two example files for hs37d5 and GRCh38 reference.
