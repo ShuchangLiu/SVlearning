@@ -6,11 +6,25 @@ checkFormatPara <- function(configFileName){
   
   configFile=read.table(configFileName,comment.char="#",sep="=",as.is=T,header=F)
   
-  para=list()
+  # remove space and tab
   for(i in 1:nrow(configFile)){
     configFile[i,1]=gsub(" ","",configFile[i,1])
-    para[[configFile[i,1]]]=unlist(strsplit(gsub(" ","",configFile[i,2]),split=","))
+    configFile[i,1]=gsub("\t","",configFile[i,1])
+    configFile[i,2]=gsub(" ","",configFile[i,2])
+    configFile[i,2]=gsub("\t","",configFile[i,2])
   }
+  
+  # check duplication
+  if(any(duplicated(configFile[,1]))){
+    stop(paste("Duplicate config file variable name ", paste(configFile[duplicated(configFile[,1]),1],collapse=", ")))
+  }
+  
+  # format
+  para=list()
+  for(i in 1:nrow(configFile)){
+    para[[configFile[i,1]]]=unlist(strsplit(configFile[i,2],split=","))
+  }
+  
   
   # change format and check format
   if(is.null(para$bedtools)){
@@ -88,10 +102,6 @@ checkFormatPara <- function(configFileName){
     para$vote=1
   }
   
-  para$DELbin=as.integer(para$DELbin)
-  para$DUPbin=as.integer(para$DUPbin)
-  para$INVbin=as.integer(para$INVbin)
-  
   # check reference file
   if(is.null(para$reference)){
     stop("Parameter 'reference' is not available in the config file. Please provide the path for reference FA file.")
@@ -109,6 +119,10 @@ checkFormatPara <- function(configFileName){
     stop("Parameter 'Chr' is not available in the config file. Please provide the chromosomes to be analyzed.")
   }
   para$Chr=as.character(para$Chr)
+  if(any(duplicated(para$Chr))){
+    para$Chr=unique(para$Chr)
+    warning(paste("Parameter 'Chr' in config file has duplicate values. Use unique values ",paste(para$Chr,collapse=", ")," .",sep=""))
+  }
   
   para$refLen=rep(0,times=length(para$Chr))
   names(para$refLen)=para$Chr
@@ -140,6 +154,10 @@ checkFormatPara <- function(configFileName){
     warning("Parameter 'MLmethod' is not available in the config file. Set it as MLmethod=SVMradial,SVMpolynomial,RF,NN,LDA,adaboost by default.")
     para$MLmethod=c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")
   }
+  if(any(duplicated(para$MLmethod))){
+    para$MLmethod=unique(para$MLmethod)
+    warning(paste("Parameter 'MLmethod has duplicated values. Use unique values ",paste(para$MLmethod,collapse=", ")," .",sep=""))
+  }
   if(!(all(para$MLmethod%in%c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")))){
     stop("Error: In config file, MLmethod can only choose from SVMpolynomial, SVMrdial, RF, NN, LDA, adaboost")
   }
@@ -147,27 +165,25 @@ checkFormatPara <- function(configFileName){
     stop("Error: The number of MLmethod has to be equal to or greater than vote value.")
   }
   
-  # check para$Type
-  if(!all(para$Type %in% c("DEL","DUP","INV"))){
-    stop("Error: In config file, Type can only choose from DEL, DUP and INV")
+  # check para$Type and para$SVbin
+  if(is.null(para$Type)){
+    stop("Parameter 'Type' is not available in config file.")
   }
-  
-  # check bin order
-  if("DEL"%in% para$Type){} ## change this later, combine DELbin DUPbin and INVbin
-  if(all(para$DELbin==sort(para$DELbin))==FALSE){
-    warning("DELbin has to be sorted")
-    para$DELbin=sort(para$DELbin)
+  if(any(duplicated(para$Type))){
+    para$Type=unique(para$Type)
+    warning(paste("Parameter 'Type' in config file has duplicate values. Use unique values ",paste(para$Type,collapse=", ")," .",sep=""))
   }
-  
-  if(all(para$DUPbin==sort(para$DUPbin))==FALSE){
-    warning("DUPbin has to be sorted")
-    para$DUPbin=sort(para$DUPbin)
+  if(is.null(para$SVbin)){
+    stop("Parameter 'SVbin' is not available in config file.")
   }
-  
-  if(all(para$INVbin==sort(para$INVbin))==FALSE){
-    warning("DELbin has to be sorted")
-    para$DELbin=sort(para$DELbin)
+  if(length(para$Type)!=length(para$SVbin)){
+    stop("The length of 'Type' and 'SVbin' does not match.")
   }
+  tmp=list()
+  for(i in 1:length(para$Type)){
+    tmp[[para$Type[i]]]=sort(as.integer(unlist(strsplit(para$SVbin[i],split=":"))))
+  }
+  para$SVbin=tmp
   
   # check scoreID 
   if(is.null(para$scoreID)){
@@ -250,6 +266,10 @@ checkFormatPara <- function(configFileName){
     if(is.null(para$evaCaller)){
       stop("When reportTestEvaluation=TRUE, parameter 'evaCaller' has to be provided.")
     }
+    if(any(duplicated(para$evaCaller))){
+      para$evaCaller=unique(para$evaCaller)
+      warning(paste("Parameter 'evaCaller' in config file has duplicate values. Use unique values ",paste(para$evaCaller,collapse=", ")," .",sep=""))
+    }
     if(is.null(para$evaOverlapRate)){
       warning("When reportTestEvaluation=TRUE, parameter 'evaOverlapRate' has to be provided. Set as 0.5 by default.")
       para$evaOverlapRate=0.5
@@ -269,10 +289,15 @@ checkFormatPara <- function(configFileName){
     warning("Parameter 'outFormat' is not available in config file. Set as BED and VCF by default.")
     para$outFormat=c("BED","VCF")
   }
+  if(any(duplicated(para$outFormat))){
+    para$outFormat=unique(para$outFormat)
+    warning(paste("Parameter 'outFormat' has duplicate values. Use unique values ",paste(para$outFormat,collapse=", ")," .",sep=""))
+  }
   if(!all(para$outFormat%in%c("BED","VCF"))){
     warning("Parameter 'outFormat' has to choose from 'BED' or 'VCF'. Set as BED and VCF by default.")
     para$outFormat=c("BED","VCF")
   }
+  
   
   
   # tmp folder
@@ -1366,15 +1391,7 @@ formatPieceSVsample <- function(para,sampleDir,Sample){
   #[[type]][[sample]][[as.character(as.integer(binlen))]][[as.character(chr)]]
   for(type in para$Type){
     
-    if(type=="DEL"){
-      binLen=para$DELbin
-    }else if(type=="DUP"){
-      binLen=para$DUPbin
-    }else if(type=="INV"){
-      binLen=para$INVbin
-    }else{
-      stop(paste("Type ",type," is not supported yet!"))
-    }
+    binLen=para$SVbin[[type]]
     binLenAll=c(binLen,Inf)
     
     for(sample in Sample){
@@ -1689,15 +1706,7 @@ trainModel <- function(para, Sample){
     
     model[[type]]=list()
     
-    if(type=="DEL"){
-      binLen=para$DELbin
-    }else if(type=="DUP"){
-      binLen=para$DUPbin
-    }else if(type=="INV"){
-      binLen=para$INVbin
-    }else{
-      stop(paste("Type ",type," not supporting yet!"))
-    }
+    binLen=para$SVbin[[type]]
     binLenAll=c(binLen,Inf)
     
     for(binlen in binLen){
@@ -1843,15 +1852,7 @@ modelPredict <- function(para, Sample){
       
       print(paste("sample=",sample,", type=",type,sep=""))
       
-      if(type=="DEL"){
-        binLen=para$DELbin
-      }else if(type=="DUP"){
-        binLen=para$DUPbin
-      }else if(type=="INV"){
-        binLen=para$INVbin
-      }else{
-        stop(paste("Type ",type," not supporting yet!"))
-      }
+      binLen=para$SVbin[[type]]
       binLenAll=c(binLen,Inf)
       
       for(chr in para$Chr){
