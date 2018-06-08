@@ -44,7 +44,7 @@ For example, the VCF file is organized as follows,
 * ... all the other samples
 
 #### Config file 
-All the parameter settings are included in config file. This file is tab separated with pound sign as comment. Please refer to the config file in the example folder and modify it accordingly. 
+All the parameter settings are included in config file. This file is "=" separated with pound sign as comment. Please refer to the config file in the example folder and modify it accordingly. 
 
 ### Run the pipeline
 
