@@ -4,10 +4,11 @@
 # to check and format the paramters
 checkFormatPara <- function(configFileName){
   
-  configFile=read.table(configFileName,comment.char="#",sep="\t",as.is=T,header=F)
+  configFile=read.table(configFileName,comment.char="#",sep="=",as.is=T,header=F)
   
   para=list()
   for(i in 1:nrow(configFile)){
+    configFile[i,1]=gsub(" ","",configFile[i,1])
     para[[configFile[i,1]]]=unlist(strsplit(gsub(" ","",configFile[i,2]),split=","))
   }
   
@@ -19,17 +20,27 @@ checkFormatPara <- function(configFileName){
   }
   
   if(is.null(para$modelDir)){
-    stop("Parameter 'modelDir' is not available in the config file. ")
+    stop("Parameter 'modelDir' is not available in the config file. This the folder for input/output model ")
   }
+  
+  # knownModel
   if(is.null(para$knownModel)){
-    stop("Parameter 'bedtools' is not available in the config file. Please provide TRUE or FALSE.")
-  }else if(para$knownModel==T){
+    stop("Parameter 'knownModel' is not available in the config file. Please set it as TRUE or FALSE")
+  }else{
+    para$knownModel=as.logical(para$knownModel)
+  }
+
+  if(para$knownModel==T){
     if(is.null(para$modelFile)){
       stop("When parameter 'knownModel' is TRUE, user has to provide 'modelFile' in the config file.")
+    }
+    if(!file.exists(paste(para$modelDir,"/",para$modelFile,sep=""))){
+      stop(paste("When parameter 'knownModel' is TRUE, model file is required. However file ",para$modelDir,"/",para$modelFile, " dose not exist.",sep=""))
     }
   }else if(para$knownModel==F){
     if(is.null(para$modelFile)){
       warning(paste("No parameter 'modelFile' provided. The training model will be stored as model.rdata under folder ",para$modelDir,sep=""))
+      para$modelFile="model.rdata"
     }
     if(is.null(para$trainDataDir)){
       stop("Parameter 'trainDataDir' has to be provided when 'knownModel' is FALSE.")
@@ -41,32 +52,94 @@ checkFormatPara <- function(configFileName){
     stop("Parameter 'knownModel' has to be either TRUE or FALSE.")
   }
   
-  para$Nrate=as.numeric(para$Nrate)
-  para$vote=as.numeric(para$vote)
+  # filter N region
+  if(is.null(para$filterNregion)){
+    warning("Parameter 'filterNregion' is not available in config file. Set it as FALSE by default.")
+    para$filterNregion
+  }else{
+    para$filterNregion=as.logical(para$filterNregion)
+  }
+  if(!para$filterNregion%in%c(T,F)){
+    warning("Parameter 'filterNregion' has to be TRUE or FALSE. Set it as FALSE by default.")
+    para$filterNregion
+  }
+  if(para$filterNregion==T){
+    if(is.null(para$Nrate)){
+      warning("When filterNregion=TRUE, parameter 'Nrate' has to be provided in config file. Set it as 0.2 by default.")
+      para$Nrate=0.2
+    }else{
+      para$Nrate=as.numeric(para$Nrate)
+    }
+    if(is.na(para$Nrate) | para$Nrate<0 | para$Nrate>1){
+      warning("Wrong format of parameter 'Nrate' in config file. Set it as 0.2 by default.")
+      para$Nrate=0.2
+    }
+  }
+  
+  # vote
+  if(is.null(para$vote)){
+    warning("Parameter 'vote' is not available in config file. Set it as 1 by default.")
+    para$vote=1
+  }else{
+    para$vote=as.numeric(para$vote)
+  }
+  if(is.na(para$vote) | !(para$vote)%in%c(1:6)){
+    warning("Wrong format of parameter 'vote' in config file. Set it as 1 by default.")
+    para$vote=1
+  }
+  
   para$DELbin=as.integer(para$DELbin)
   para$DUPbin=as.integer(para$DUPbin)
+  para$INVbin=as.integer(para$INVbin)
+  
+  # check reference file
+  if(is.null(para$reference)){
+    stop("Parameter 'reference' is not available in the config file. Please provide the path for reference FA file.")
+  }else if(!file.exists(para$reference)){
+    stop(paste("Parameter 'reference' file path ",para$reference, " does not exist."))
+  }
+  
+  if(is.null(para$refLenFile)){
+    stop("Parameter 'refLenFile' is not available in the config file. Please provide the path for reference length file.")
+  }else if(!file.exists(para$refLenFile)){
+    stop(paste("Parameter 'refLenFile' file path ",para$refLenFile, " does not exist."))
+  }
+  
+  if(is.null(para$Chr)){
+    stop("Parameter 'Chr' is not available in the config file. Please provide the chromosomes to be analyzed.")
+  }
   para$Chr=as.character(para$Chr)
-  para$pieceBalanceRate=as.numeric(para$pieceBalanceRate)
-  para$PgapDis=as.numeric(para$PgapDis)
-  para$SVgapDis=as.numeric(para$SVgapDis)
-  para$markPieceRate=as.numeric(para$markPieceRate)
-  para$maxTrainNum=as.numeric(para$maxTrainNum)
   
-  
-  # ref len file
   para$refLen=rep(0,times=length(para$Chr))
   names(para$refLen)=para$Chr
   tmp=read.table(para$refLenFile,sep="\t",header=F,as.is=T)
   for(chr in para$Chr){
-    para$refLen[chr]=as.integer(tmp[which(tmp[,1]==chr),2])
+    ind=which(tmp[,1]==chr)
+    if(length(ind)==0){
+      stop(paste("Chromosome ",chr, " is not available in reference length file ",para$refLenFile,".",sep=""))
+    }
+    if(length(ind)>1){
+      stop(paste("Chromosome ",chr, " has multiple entries in reference length file ",para$refLenFile,".",sep=""))
+    }
+    para$refLen[chr]=as.integer(tmp[ind,2])
   }
   
   ## training sample, change here in case don't want to use the full training samples
   para$trainSample=list.files(para$trainDataDir)
   ## testing sample, change here in case don't want to use the full testing samples
+  if(is.null(para$testDataDir)){
+    stop("Parameter 'testDataDir' is not available in config file.")
+  }
+  if(!file.exists(para$testDataDir)){
+    stop(paste("Parameter 'testDataDir' ",para$testDataDir, " does not exist."))
+  }
   para$testSample=list.files(para$testDataDir)
   
   # check para$MLmethod
+  if(is.null(para$MLmethod)){
+    warning("Parameter 'MLmethod' is not available in the config file. Set it as MLmethod=SVMradial,SVMpolynomial,RF,NN,LDA,adaboost by default.")
+    para$MLmethod=c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")
+  }
   if(!(all(para$MLmethod%in%c("SVMradial","SVMpolynomial","RF","NN","LDA","adaboost")))){
     stop("Error: In config file, MLmethod can only choose from SVMpolynomial, SVMrdial, RF, NN, LDA, adaboost")
   }
@@ -75,14 +148,31 @@ checkFormatPara <- function(configFileName){
   }
   
   # check para$Type
-  #if(!all(para$Typ %in% c("DEL","DUP"))){
-  #  stop("Error: In config file, Type can only choose from DEL and DUP")
-  #}
+  if(!all(para$Type %in% c("DEL","DUP","INV"))){
+    stop("Error: In config file, Type can only choose from DEL, DUP and INV")
+  }
   
-  ### to test all the MLmethod
-  #para$MLmethod=c("NN","SVMpolynomial","SVMradial","LDA","RF","adaboost")
+  # check bin order
+  if("DEL"%in% para$Type){} ## change this later, combine DELbin DUPbin and INVbin
+  if(all(para$DELbin==sort(para$DELbin))==FALSE){
+    warning("DELbin has to be sorted")
+    para$DELbin=sort(para$DELbin)
+  }
   
-  # check scoreID  ## @@@@@@ TBD: change here: combine same toolName
+  if(all(para$DUPbin==sort(para$DUPbin))==FALSE){
+    warning("DUPbin has to be sorted")
+    para$DUPbin=sort(para$DUPbin)
+  }
+  
+  if(all(para$INVbin==sort(para$INVbin))==FALSE){
+    warning("DELbin has to be sorted")
+    para$DELbin=sort(para$DELbin)
+  }
+  
+  # check scoreID 
+  if(is.null(para$scoreID)){
+    stop("Parameter 'scoreID' is not available in the config file. Please provide the scoreID with comma separated format callerName:column:ID.")
+  }
   scoreIDtmp=list()
   allToolName=c()
   for(i in 1:length(para$scoreID)){
@@ -97,7 +187,7 @@ checkFormatPara <- function(configFileName){
     currentName=paste(tmp[1],tmp[3],sep="_")
     if(currentName%in%allToolName){
       # don't allow duplicate names
-      warning(paste("Duplicate toolName and score for ",currentName," in para$scoreID"))  
+      warning(paste("Duplicate callerName and score for ",currentName," in para$scoreID"))  
       next
     }
     allToolName=c(allToolName,currentName)
@@ -117,6 +207,181 @@ checkFormatPara <- function(configFileName){
   }
   para$allToolName=allToolName
   
+  # filter delly genotype
+  if(is.null(para$filterDellyGenotype)){
+    warning("Parameter 'filterDellyGenotype' is not available in config file. Set it as FALSE by default.")
+    para$filterDellyGenotype=F
+  }
+  para$filterDellyGenotype=as.logical(para$filterDellyGenotype)
+  if(!para$filterDellyGenotype%in%c(T,F)){
+    warning("Parameter 'filterDellyGenotype' has to be TRUE or FALSE. Set it as FALSE by default.")
+    para$filterDellyGenotype=F
+  }
+  if(para$filterDellyGenotype==T){
+    if(is.null(para$keepGenotype)){
+      warning("Parameter 'keepGenotype' is not available in config file. Set it as '0/1' and '1/1' by default.")
+      para$keepGenotype=c("0/1","1/1")
+    }
+  }
+  
+  # check output directory
+  if(is.null(para$outDir)){
+    warning("Parameter 'outDir' is not available in config file. Set as current directory by default.")
+    para$outDir=paste(getwd(),"/output",sep="")
+  }
+  if(is.null(para$tmpDir)){
+    warning("Parameter 'tmpDir' is not available in config file. Set as current directory by default.")
+    para$outDir=paste(getwd(),"/tmp",sep="")
+  }
+  
+  # report test evaluation
+  if(is.null(para$reportTestEvaluation)){
+    warning("Parameter 'reportTestEvaluation' is not available in config file. Set as FALSE by default.")
+    para$reportTestEvaluation=F
+  }else{
+    para$reportTestEvaluation=as.logical(para$reportTestEvaluation)
+  }
+  if(!para$reportTestEvaluation%in%c(T,F)){
+    warning("Parameter 'reportTestEvaluation' has to be TRUE or FALSE. Set it as FALSE by default.")
+    para$reportTestEvaluation=F
+  }
+  if(para$reportTestEvaluation==T){
+    # evaluation caller
+    if(is.null(para$evaCaller)){
+      stop("When reportTestEvaluation=TRUE, parameter 'evaCaller' has to be provided.")
+    }
+    if(is.null(para$evaOverlapRate)){
+      warning("When reportTestEvaluation=TRUE, parameter 'evaOverlapRate' has to be provided. Set as 0.5 by default.")
+      para$evaOverlapRate=0.5
+    }
+    if(is.na(as.numeric(para$evaOverlapRate)) | as.numeric(para$evaOverlapRate)<=0 | as.numeric(para$evaOverlapRate)>1){
+      warning("Parameter evaOverlapRate has to range (0,1]. Set as 0.5 by default.")
+      para$evaOverlapRate=0.5
+    }
+  }
+  if(is.null(para$evaDir)){
+    warning("When reportTestEvaluation=TRUE, parameter 'evaDir' has to be provided. Set as 'Evaluation' by default.")
+    para$evaDir="Evaluation"
+  }
+  
+  # out Format
+  if(is.null(para$outFormat)){
+    warning("Parameter 'outFormat' is not available in config file. Set as BED and VCF by default.")
+    para$outFormat=c("BED","VCF")
+  }
+  if(!all(para$outFormat%in%c("BED","VCF"))){
+    warning("Parameter 'outFormat' has to choose from 'BED' or 'VCF'. Set as BED and VCF by default.")
+    para$outFormat=c("BED","VCF")
+  }
+  
+  
+  # tmp folder
+  if(is.null(para$trueDir)){
+    warning("Parameter 'trueDir' is not available in config file. Set as 'true' by default.")
+    para$trueDir="true"
+  }
+  if(is.null(para$toolDirPre)){
+    warning("Parameter 'toolDirPre' is not available in config file. Set as 'tool' by default.")
+    para$toolDirPre="tool"
+  }
+  if(is.null(para$pieceDir)){
+    warning("Parameter 'pieceDir' is not available in config file. Set as 'piece' by default.")
+    para$pieceDir="piece"
+  }
+  if(is.null(para$shortBedDir)){
+    warning("Parameter 'shortBedDir' is not available in config file. Set as 'shortBed' by default.")
+    para$shortBedDir="shortBed"
+  }
+  if(is.null(para$bedDir)){
+    warning("Parameter 'bedDir' is not available in config file. Set as 'BED' by default.")
+    para$bedDir="BED"
+  }
+  if(is.null(para$vcfDir)){
+    warning("Parameter 'vcfDir' is not available in config file. Set as 'VCF' by default.")
+    para$vcfDir="VCF"
+  }
+  if(is.null(para$SVlearningDir)){
+    warning("Parameter 'SVlearningDir' is not available in config file. Set as 'SVlearning' by default.")
+    para$SVlearningDir="SVlearning"
+  }
+  
+  # bin by chr
+  if(is.null(para$binByChr)){
+    warning("Parameter 'binByChr' is not available in config file. Set as FALSE by default.")
+    para$binByChr=F
+  }else{
+    para$binByChr=as.logical(para$binByChr)
+  }
+  if(!para$binByChr%in%c(T,F)){
+    warning("Parameter 'binByChr' has to be TRUE or FALSE. Set as FALSE by default.")
+    para$binByChr=F
+  }
+  
+  # mark piece rate
+  if(is.null(para$markPieceRate)){
+    warning("Parameter 'markPieceRate' is not available in config file. Set it as 0.7 by default.")
+    para$markPieceRate=0.7
+  }
+  para$markPieceRate=as.numeric(para$markPieceRate)
+  if(is.na(para$markPieceRate) | para$markPieceRate<0 | para$markPieceRate>1){
+    warning("Wrong format for parameter 'markPieceRate'. Set it as 0.7 by default.")
+    para$markPieceRate=0.7
+  }
+  
+  # piece balance rate
+  if(is.null(para$pieceBalanceRate)){
+    warning("Parameter 'pieceBalanceRate' is not available in config file. Set it as 0.5 by default.")
+    para$pieceBalanceRate=0.5
+  }
+  para$pieceBalanceRate=as.numeric(para$pieceBalanceRate)
+  if(is.na(para$pieceBalanceRate) | para$pieceBalanceRate<=0 ){
+    warning("Wrong format for parameter 'pieceBalanceRate'. Set it as 0.5 by default.")
+    para$pieceBalanceRate=0.5
+  }
+  
+  # maximum training number of pieces
+  if(is.null(para$maxTrainNum)){
+    warning("Parameter 'maxTrainNum' is not available in config file. Set it as 10000 by default.")
+    para$maxTrainNum=10000
+  }
+  para$maxTrainNum=as.numeric(para$maxTrainNum)
+  if(is.na(para$maxTrainNum) | para$maxTrainNum<=500 ){
+    warning("Parameter 'maxTrainNum' has to be greater than 500. Set it as 10000 by default.")
+    para$maxTrainNum=10000
+  }
+  
+  # piece gap distance for merging
+  if(is.null(para$PgapDis)){
+    warning("Parameter 'PgapDis' is not available in config file. Set it as 1 by default.")
+    para$PgapDis=1
+  }
+  para$PgapDis=as.numeric(para$PgapDis)
+  if(is.na(para$PgapDis) | para$PgapDis<1 ){
+    warning("Parameter 'PgapDis' has to be >=1. Set it as 1 by default.")
+    para$PgapDis=1
+  }
+  
+  # SV gap distance for merging
+  if(is.null(para$SVgapDis)){
+    warning("Parameter 'SVgapDis' is not available in config file. Set it as 0 by default.")
+    para$SVgapDis=0
+  }
+  para$SVgapDis=as.numeric(para$SVgapDis)
+  if(is.na(para$SVgapDis) | para$SVgapDis<0 ){
+    warning("Parameter 'SVgapDis' has to be >=0. Set it as 0 by default.")
+    para$SVgapDis=0
+  }
+  
+  # remove temporary folder
+  if(is.null(para$rmTmpFile)){
+    warning("Parameter 'rmTmpFile' is not available in config file. Set as FALSE by default.")
+    para$rmTmpFile=F
+  }
+  para$rmTmpFile=as.logical(para$rmTmpFile)
+  if(!para$rmTmpFile%in%c(T,F)){
+    warning("Parameter 'rmTmpFile' has to be TRUE or FALSE. Set as FALSE by default.")
+    para$rmTmpFile=F
+  }
   
   print(para)
   
@@ -1605,7 +1870,7 @@ modelPredict <- function(para, Sample){
           pieceFileXY=paste(para$tmpDir,"/",para$pieceDir,"/",type,"_",sample,"_",as.character(as.integer(binlen)),"_",as.character(chr),"_xy.txt",sep="")
           
           if(file.exists(pieceFileXY)==FALSE){
-            stop(paste("No piece file for sample=",sample,", type=",", binlen=",as.character(as.integer(binlen)),", chr=",as.character(chr),". Please run function formatPieceSV() first.",sep=""))
+            stop(paste("No piece file for sample=",sample,", type=",type,", binlen=",as.character(as.integer(binlen)),", chr=",as.character(chr),". Please run function formatPieceSV() first.",sep=""))
           }
           
           if(file.info(pieceFileXY)$size==0){ # no testing data
