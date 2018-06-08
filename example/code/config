@@ -3,27 +3,33 @@
 
 #### tool directory
 # if bedtools is installed in global environment, try 'which bedtools' to get the path; if nothing show out, try to install bedtools and provide the path to execute it 
-bedtools = /opt/software/helix/BEDtools/2.27.0/bin/bedtools 
+bedtools = /path/to/bin/bedtools 
 
 
 #### input VCF directory
-trainDataDir = /projects/liusi/DP/Gitpackage/SVlearning/example/data
-testDataDir = /projects/liusi/DP/Gitpackage/SVlearning/example/data
+trainDataDir = /path/to/SVlearning/example/data
+testDataDir = /path/to/SVlearning/example/data
 
 
 #### reference file directory
-reference = /projects/leew/refs/hg19/hs37d5.fa
-refLenFile = /projects/liusi/reference/hg19/hs37d5.len.txt
+reference = /path/to/hs37d5.fa
+refLenFile = /path/to/SVlearning/example/reference/hs37d5.len.txt
 
 
 #### output parameter
-outDir = /projects/liusi/DP/Gitpackage/SVlearning/example/output # output folder
-tmpDir = /projects/liusi/DP/Gitpackage/SVlearning/example/tmp  # tmp file folder
-reportTestEvaluation = TRUE # whether report testing evaluation, if TRUE, test true VCF files are required
+outDir = /path/to/SVlearning/example/output # output folder
+tmpDir = /path/to/SVlearning/example/tmp  # tmp file folder
 outFormat = BED,VCF # choose from (BED, VCF) or list both of them by comma separator
 
 
-#### ML model paramter
+#### Evaluation
+reportTestEvaluation = TRUE # whether report testing evaluation, if TRUE, test true VCF files are required
+evaCaller = SVlearning,delly,CNVnator,breakdancer # callers to be evaluated
+evaOverlapRate = 0.5 # at SV evaluation step, the overlap rate between caller and trueset to define hit. Has to be (0,1]
+evaDir = Evaluation # output evaluation file folder
+
+
+#### ML model files
 # comma separated ML model name choose from: SVMpolynomial, SVMradial, RF, NN, LDA, adaboost
 MLmethod = SVMradial,SVMpolynomial,RF,NN,LDA,adaboost
 
@@ -34,35 +40,35 @@ knownModel = FALSE
 
 # caller score to be used, comma separted, with the format callerName:column:ID
 scoreID = CNVnator:8:natorP2,delly:10:GQ,breakdancer:6:QUAL,breakseq:6:QUAL,cnMOPS:6:QUAL,hydra:6:QUAL,lumpy:8:SU,GenomeSTRiP:6:QUAL 
-modelDir = /projects/liusi/DP/Gitpackage/SVlearning/example/model
+modelDir = /path/to/SVlearning/example/model
 modelFile = model.rdata
+
+
+#### tmp folder names
 trueDir = true  #  true temp files
 toolDirPre = tool # prefix for the tool directory
 pieceDir = piece # piece temp files
 shortBedDir = shortBed # for short bed file tmp file
 bedDir = BED # output BED file folder
 vcfDir = VCF # output VCF file folder
-evaDir = Evaluation # output evaluation file folder
 SVlearningDir = SVlearning # SVlearning tmp folder
-evaCaller = SVlearning,delly,CNVnator,breakdancer # callers to be evaluated
-evaOverlapRate = 0.5 # at SV evaluation step, the overlap rate between caller and trueset to define hit
+
+
+#### algorithm parameters
 # vote among ML methods, this must be an positive integer less than or equal to the MLmethod number
 vote = 2
-# filtering
 filterNregion = TRUE  # filter out regions located at N regions
-Nrate = 0.2  # filter the SV calls with greater than Nrate N regions
+Nrate = 0.2  # filter the SV calls with greater than Nrate N regions, has to be [0,1]
 filterDellyGenotype = TRUE  # only keep 0/1 or 1/1 genotype for delly
 keepGenotype = 0/1,1/1  # if filterDellyGenotype==TRUE, the genotype to be kept
 Chr = 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based on the reference genome, contigs are not recommended
 binByChr = FALSE # if TRUE, bin by chr; otherwise, pool all the chr together to train and test
-# mark piece by truth
-markPieceRate = 0.7 # 0 for at least 1bp overlap
+markPieceRate = 0.7 # mark piece by truth. 0 for at least 1bp overlap
 pieceBalanceRate = 0.2 # balance ratio between y=1 and y=0 pieces
-maxTrainNum = 10000 # maximum number of pieces when train the model, to avoid computing time; if Inf, then no trimming
-Type = DEL,DUP  # SV types to analysis, choose from DEL and DUP
-# DEL length bin boundary, comma separated. Use default value if not provided
-DELbin = 50,500,700,1000,2000,5000,10000,20000,100000,1000000
-DUPbin = 50,500,700,1000,2000,5000,10000,20000,100000,1000000
+maxTrainNum = 10000 # maximum number of pieces when train the model, to avoid computing time; if Inf, then no trimming; should be greater than 500
+Type = DEL,DUP  # SV types to analysis
+# SV bin size, comma separated corresponding with 'Type' setting; colon separated within one SV type, sorted by increasing order.
+SVbin = 50:500:700:1000:2000:5000:10000:20000:100000:1000000,50:500:700:1000:2000:5000:10000:20000:100000:1000000
 # the gap when merging piece to SV, increasing this number will encourage more pieces to be merged for a longer SV rather than many short SV
 PgapDis = 1
 # the gap when merging SVs from different bin size, increasing this number will encourage more SVs to be merge for a longer SV; 0 means no-merging
