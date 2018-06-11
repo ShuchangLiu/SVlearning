@@ -1,0 +1,4 @@
+Sample	Predict	True	TrueHitPredict	Precision	PredictHitTrue	Recall
+HG00096	13	3	3	0.230769230769231	3	1
+NA12878	16	4	4	0.25	4	1
+NA20845	14	4	4	0.285714285714286	4	1

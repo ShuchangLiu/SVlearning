@@ -1,0 +1,4 @@
+Sample	Predict	True	Overlap	Precision	Recall
+HG00096	0	0	0	0	0
+NA12878	0	0	0	0	0
+NA20845	0	0	0	0	0
