@@ -47,7 +47,7 @@ For example, the VCF file is organized as follows,
 All the parameter settings are included in config file. This file is "=" separated with pound sign as comment. Please refer to the config file in the example folder and modify it accordingly. 
 
 #### Model file
-If the model file is not provided, users need to set config file parameter knownModel=FALSE and provide the training data. The pipeline will train and generate a model file. Otherwise, if the model file is provided, users can set knownModel=TRUE and provide the model file path in th econfiguration file.
+If the model file is not provided, users need to set config file parameter knownModel=FALSE and provide the training data. The pipeline will train and generate a model file. Otherwise, if the model file is provided, users can set knownModel=TRUE and provide the model file path in the configuration file.
 
 ### Run the pipeline
 
