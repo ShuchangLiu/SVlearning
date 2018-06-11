@@ -46,6 +46,9 @@ For example, the VCF file is organized as follows,
 #### Config file 
 All the parameter settings are included in config file. This file is "=" separated with pound sign as comment. Please refer to the config file in the example folder and modify it accordingly. 
 
+#### Model file
+If the model file is not provided, users need to set config file parameter knownModel=FALSE and provide the training data. The pipeline will train and generate a model file. Otherwise, if the model file is provided, users can set knownModel=TRUE and provide the model file path in th econfiguration file.
+
 ### Run the pipeline
 
 Users can adjust the pipeline SVlearning.r and SVlearning_CV.r accordingly. 
@@ -63,7 +66,8 @@ Rscript path/to/SVlearning_CV.r path/to/config path/to/Rsource.r
 ```
 
 ### Output file
-The output can be in both BED and VCF format (set outFormat to be BED,VCF).
+The output can be in both BED and VCF format (set outFormat to be BED,VCF) in the output directory.
+
 
 #### BED format output
 The files will be located at outDir/bedDir as illustrated in config file. The file is tab separabted and the format is as follows
@@ -93,9 +97,15 @@ The INFO part is colon separated within each comoposing piece, and comma separat
 #### VCF format output
 The files will be located at outDir/vcfDir as illustrated in config file. The file is illustrated by the header of the VCF file. The FORMAT column is the same as BED INFO column. 
 
+#### Evaluation 
+In the config file, if users set reportTestEvaluation = TRUE and provide the new data (testing data) true VCF call set, then SVlearning will evaluate the performance in the 'evaDir' directory. If reportTestEvaluation = FALSE, then no testing data true set required.
+
+## Simple example
+Please check SVlearning/example folder to test the pipeline. Users can go to SVlearning/example/code for the command guide and modify the config file accordingly. The testing data are VCF files called from BAM files in 1000GP project. Users can try their own data following the framework of the simple example.
+
 ## Algorithm details
 
-* **Model file:** If the model is unknown (knownModel==FALSE), the pipeline will train the model by training data; alternatively, users can set knownModel==TRUE and provide model file (modelDir/modelFile) to skip the training step. In this pipeline, we prepared a ready-made model based on 27 1000G WGS samples and their phase 3 true sets. If the users don't have training data available, this model file is suggested as default one.
+* **Model file:** If the model is unknown (knownModel=FALSE), the pipeline will train the model by training data; alternatively, users can set knownModel=TRUE and provide model file (modelDir/modelFile) to skip the training step. In this pipeline, we prepared a ready-made model based on 27 1000G WGS samples and their phase 3 true sets. If the users do not have training data available, this model file is suggested as default one.
 * **Working pipeline:** SVlearning will first prepare the data and cut the the SVs into pieces based on all the margins of SVs called by all the three callers. And then each piece is regarded as one unit to apply machine learning method to predict its true of false. Then neighboring predicted-true pieces will merge back into final SVs.
 * **Machine learning (ML) models:** The ML models choosing from SVM with radial kernel, SVM with polynomial kernel, Random Forest, Neural Network, Linear discriminant analysis and Adaboost.
 * **Voting models:** The pipeline takes the majority vote (cutoff determined by 'vote' in config file) among the above ML methods.
