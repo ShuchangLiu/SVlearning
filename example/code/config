@@ -58,18 +58,17 @@ SVlearningDir = SVlearning # SVlearning tmp folder
 # vote among ML methods, this must be an positive integer less than or equal to the MLmethod number
 vote = 2
 filterNregion = TRUE  # filter out regions located at N regions
-Nrate = 0.2  # filter the SV calls with greater than Nrate N regions, has to be [0,1]
+Nrate = 0.2  # filter the SV calls with greater than Nrate N regions
 filterDellyGenotype = TRUE  # only keep 0/1 or 1/1 genotype for delly
 keepGenotype = 0/1,1/1  # if filterDellyGenotype==TRUE, the genotype to be kept
-#Chr = 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 # change this based on the reference genome, contigs are not recommended
-Chr = 1,10 # for a quick example
+Chr = 1,10 # change this based on the reference genome, contigs are not recommended
 binByChr = FALSE # if TRUE, bin by chr; otherwise, pool all the chr together to train and test
 markPieceRate = 0.7 # mark piece by truth. 0 for at least 1bp overlap
 pieceBalanceRate = 0.2 # balance ratio between y=1 and y=0 pieces
 maxTrainNum = 10000 # maximum number of pieces when train the model, to avoid computing time; if Inf, then no trimming; should be greater than 500
-Type = DEL,DUP  # SV types to analysis
+Type = DEL,INV  # SV types to analysis (SVTYPE for VCF files), for example DEL, DUP, INV, etc.
 # SV bin size, comma separated corresponding with 'Type' setting; colon separated within one SV type, sorted by increasing order.
-SVbin = 50:500:700:1000:2000:5000:10000:20000:100000:1000000,50:500:700:1000:2000:5000:10000:20000:100000:1000000
+SVbin = 50:500:700:1000:2000:5000:10000:20000:100000:1000000,50:100000:1000000:5000000:10000000:50000000
 # the gap when merging piece to SV, increasing this number will encourage more pieces to be merged for a longer SV rather than many short SV
 PgapDis = 1
 # the gap when merging SVs from different bin size, increasing this number will encourage more SVs to be merge for a longer SV; 0 means no-merging
