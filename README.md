@@ -30,6 +30,8 @@ Please refer to each SV caller website for details. The software can take in any
 
 Alternatively, please refer to our tool [SVE (Structural Variation Engine)](https://github.com/TheJacksonLaboratory/SVE) for easier running on all these three callers (and other four callers).
 
+SV callers are not limited to the above example. VCF files called by the other callers are also supportable.
+
 #### VCF file organization
 For example, the VCF file is organized as follows,
 
