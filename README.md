@@ -82,15 +82,10 @@ REF | reference for chromStart position
 ALT | SV type, either 'DEL' or 'DUP' for deletion and duplication
 INFO-PSTART | start position of the composing piece
 INFO-PEND | end position of the composing piece
-INFO-breakdancer | breakdancer QUAL score for the composing piece
-INFO-CNVnator | CNVnator NatorP2 score for the composing piece
-INFO-delly | delly genotype quality (GT) score for the composing piece
-INFO-NN | Neural network prediction (0: predict as false; 1: predict as true)
-INFO-SVMpolynomial | SVM with polynomial kernel prediction (0: predict as false; 1: predict as true)
-INFO-SVMradial | SVM with radial kernel prediction (0: predict as false; 1: predict as true)
-INFO-LDA | Linear discriminant analysis prediction (0: predict as false; 1: predict as true)
-INFO-RF | Random Forest prediction (0: predict as false; 1: predict as true)
-INFO-adaboost | adaboost prediction (0: predict as false; 1: predict as true)
+INFO-callerName1 | caller 1 score for the composing piece
+INFO-callerName2, etc | caller 2 (etc) score for the composing piece
+INFO-modelName1 | Model 1 prediction (0: predict as false; 1: predict as true)
+INFO-modelName2, etc | Model 2 (etc) prediction (0: predict as false; 1: predict as true)
 
 The INFO part is colon separated within each comoposing piece, and comma separated between pieces if a SV is composed by multiple pieces.
 
